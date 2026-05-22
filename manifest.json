@@ -1,0 +1,16 @@
+{
+  "name": "Singova – AI Karaoke",
+  "short_name": "Singova",
+  "description": "The Shazam of Karaoke — AI-powered synchronized lyrics from any MP3.",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#09090f",
+  "theme_color": "#8b5cf6",
+  "orientation": "any",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "screenshots": [],
+  "categories": ["music", "entertainment"]
+}

@@ -1,0 +1,175 @@
+/* ═══════════════════════════════════════════════════════════
+   SINGOVA – Custom Styles  |  Tailwind handles layout/utils
+═══════════════════════════════════════════════════════════ */
+
+* {
+  font-family: 'Inter', sans-serif;
+}
+
+body {
+  background: #09090f;
+}
+
+/* Glassmorphism */
+.glass {
+  background: rgba(13, 13, 13, 0.084);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, .07);
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(to right, #c084fc, #818cf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Animated gradient drop-zone border */
+.drop-shell {
+  position: relative;
+  border-radius: 1.5rem;
+}
+
+.drop-shell::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 1.6rem;
+  background: linear-gradient(135deg, #7c3aed, #6366f1, #a78bfa, #38bdf8, #7c3aed);
+  background-size: 300% 300%;
+  animation: gborder 4s ease infinite;
+  z-index: 0;
+  opacity: .55;
+  transition: opacity .3s;
+}
+
+.drop-shell.active::before {
+  opacity: 1;
+  animation-duration: 1.5s;
+}
+
+.drop-inner {
+  position: relative;
+  z-index: 1;
+  background: #0d0d1a;
+  border-radius: 1.4rem;
+  transition: background .2s;
+}
+
+@keyframes gborder {
+
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Waveform bars */
+.wbar {
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(to top, #7c3aed, #a78bfa);
+  animation: wdance 1.2s ease-in-out infinite;
+}
+
+@keyframes wdance {
+
+  0%,
+  100% {
+    height: 3px;
+  }
+
+  50% {
+    height: var(--h, 18px);
+  }
+}
+
+/* Lyric lines */
+.lyric-line {
+  border-left: 3px solid transparent;
+  border-radius: .5rem;
+  padding: .375rem .75rem;
+  transition: all .28s ease;
+  cursor: default;
+  animation: fadein .3s ease;
+}
+
+.lyric-line.active {
+  color: #e9d5ff;
+  background: rgba(124, 58, 237, .18);
+  border-left-color: #8b5cf6;
+  font-weight: 600;
+  font-size: 1.05em;
+}
+
+@keyframes fadein {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* SVG progress ring */
+.ring-track {
+  stroke: rgba(255, 255, 255, .06);
+}
+
+.ring-fill {
+  transition: stroke-dashoffset .5s ease;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4c1d95;
+  border-radius: 2px;
+}
+
+/* Seek bar */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: rgba(255, 255, 255, .1);
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #8b5cf6;
+  cursor: pointer;
+  transition: background .2s, transform .2s;
+}
+
+input[type='range']::-webkit-slider-thumb:hover {
+  background: #a78bfa;
+  transform: scale(1.2);
+}

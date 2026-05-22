@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#8b5cf6" />
+  <meta name="description" content="The Shazam of Karaoke — AI-powered synchronized lyrics." />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <title>Singova – AI Karaoke</title>
+
+  <!-- Tailwind (utility classes) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <!-- Custom styles -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body class="text-slate-100 flex h-screen overflow-hidden">
+
+  <!-- ═══ SIDEBAR ════════════════════════════════════════════════════════════ -->
+  <aside class="w-56 shrink-0 flex flex-col glass border-r border-white/5">
+
+    <div class="p-5 border-b border-white/5">
+      <h1 class="text-lg font-bold gradient-text">🎤 Singova</h1>
+    </div>
+
+    <!-- Language selector -->
+    <div class="p-4 border-b border-white/5">
+      <label class="text-xs text-slate-500 uppercase tracking-wider block mb-2">Translate to</label>
+      <select id="lang-select"
+        class="w-full text-xs bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-slate-300 focus:outline-none focus:border-purple-500 cursor-pointer">
+        <option value="en">🇬🇧 English</option>
+        <option value="fr">🇫🇷 French</option>
+        <option value="es">🇪🇸 Spanish</option>
+        <option value="ja">🇯🇵 Japanese</option>
+        <option value="ko">🇰🇷 Korean</option>
+        <option value="de">🇩🇪 German</option>
+      </select>
+    </div>
+
+    <!-- Library list -->
+    <div class="flex-1 overflow-y-auto p-4">
+      <h2 class="text-xs text-slate-500 uppercase tracking-wider mb-3">Library</h2>
+      <ul id="library-list" class="flex flex-col gap-1 text-sm"></ul>
+    </div>
+
+    <!-- PWA install (shown only when browser fires beforeinstallprompt) -->
+    <div class="p-4 border-t border-white/5">
+      <button id="btn-install"
+        class="hidden w-full text-xs py-2 rounded-lg bg-purple-900/40 hover:bg-purple-900/70 border border-purple-700/30 text-purple-300 transition-all">
+        ⬇ Install App
+      </button>
+    </div>
+  </aside>
+
+  <!-- ═══ MAIN ════════════════════════════════════════════════════════════════ -->
+  <main class="flex-1 flex flex-col overflow-hidden">
+
+    <!-- Now-playing strip (hidden until track loads) -->
+    <div id="np-strip" class="hidden px-8 py-3 border-b border-white/5 glass">
+      <div class="flex items-center gap-4">
+        <div
+          class="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center text-lg shrink-0">
+          🎵</div>
+        <div class="flex-1 min-w-0">
+          <p id="np-title" class="text-sm font-semibold text-white truncate"></p>
+          <p id="np-sub" class="text-xs text-slate-500"></p>
+        </div>
+        <!-- Animated waveform bars -->
+        <div id="waveform" class="hidden items-center gap-0.5 h-6">
+          <span class="wbar" style="--h:22px;animation-delay:0s"></span>
+          <span class="wbar" style="--h:12px;animation-delay:.1s"></span>
+          <span class="wbar" style="--h:18px;animation-delay:.2s"></span>
+          <span class="wbar" style="--h:8px; animation-delay:.3s"></span>
+          <span class="wbar" style="--h:20px;animation-delay:.4s"></span>
+          <span class="wbar" style="--h:10px;animation-delay:.5s"></span>
+          <span class="wbar" style="--h:16px;animation-delay:.6s"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scrollable content area -->
+    <div class="flex-1 overflow-y-auto p-8 flex flex-col gap-5">
+
+      <!-- Drop Zone -->
+      <div id="drop-zone" class="drop-shell cursor-pointer">
+        <div class="drop-inner flex flex-col items-center justify-center gap-5 p-14">
+          <div id="drop-icon"
+            class="w-20 h-20 rounded-2xl bg-purple-900/20 border border-purple-700/30 flex items-center justify-center text-4xl">
+            🎵</div>
+          <div class="text-center">
+            <p id="drop-title" class="text-xl font-semibold text-white mb-1">Drop your MP3 here</p>
+            <p id="drop-sub" class="text-sm text-slate-500">AI separates vocals, transcribes &amp; syncs lyrics in
+              seconds</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Analysis Progress Panel -->
+      <div id="analysis-panel" class="hidden glass rounded-2xl p-6">
+        <div class="flex items-center gap-6">
+          <!-- SVG progress ring -->
+          <svg class="w-16 h-16 shrink-0 ring-svg" viewBox="0 0 64 64">
+            <circle class="ring-track" cx="32" cy="32" r="26" fill="none" stroke-width="4" />
+            <circle id="ring-fill" class="ring-fill" cx="32" cy="32" r="26" fill="none" stroke="url(#rg)"
+              stroke-width="4" stroke-dasharray="163.4" stroke-dashoffset="163.4" />
+            <defs>
+              <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#7c3aed" />
+                <stop offset="100%" stop-color="#38bdf8" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div class="flex-1">
+            <p id="analysis-step" class="text-sm text-slate-300 font-medium mb-2">Initializing…</p>
+            <div class="h-1.5 bg-white/5 rounded-full overflow-hidden">
+              <div id="analysis-bar"
+                class="h-full bg-gradient-to-r from-purple-500 to-indigo-400 rounded-full transition-all duration-500"
+                style="width:0%"></div>
+            </div>
+            <p id="analysis-pct" class="text-xs text-slate-500 mt-1">0%</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lyrics Panel -->
+      <div class="glass rounded-2xl flex flex-col flex-1 min-h-52">
+        <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-white/5">
+          <h3 class="text-xs font-semibold uppercase tracking-widest text-slate-500">Lyrics</h3>
+          <span id="lang-badge"
+            class="hidden text-xs px-2 py-0.5 rounded-full bg-purple-900/40 border border-purple-700/30 text-purple-300"></span>
+        </div>
+        <div id="lyrics-display" class="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-1">
+          <p class="text-slate-600 italic text-sm">Drop an MP3 to begin…</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Player Bar (hidden until track loads) -->
+    <div id="player-bar" class="hidden border-t border-white/5 glass px-8 py-3">
+      <div class="flex items-center gap-4">
+        <span id="time-cur" class="text-xs text-slate-500 font-mono w-10">0:00</span>
+        <input id="seek-bar" type="range" min="0" max="100" value="0"
+          class="flex-1 accent-purple-500 cursor-pointer h-1" />
+        <span id="time-dur" class="text-xs text-slate-500 font-mono w-10 text-right">0:00</span>
+        <button id="btn-play"
+          class="w-10 h-10 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center text-base transition-all shadow-lg shadow-purple-900/40">▶</button>
+      </div>
+    </div>
+  </main>
+
+  <audio id="player"></audio>
+
+  <!-- App logic -->
+  <script src="app.js" defer></script>
+</body>
+
+</html>
