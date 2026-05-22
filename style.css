@@ -1,16 +1,28 @@
 /* ═══════════════════════════════════════════════════════════
-   SINGOVA – Custom Styles  |  Tailwind handles layout/utils
+   SINGOVA – Custom Styles
+   Mobile-first. Desktop enhancements via min-width queries.
 ═══════════════════════════════════════════════════════════ */
 
-* {
+/* ── Global reset ──────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
   font-family: 'Inter', sans-serif;
+  margin: 0;
+  padding: 0;
 }
 
+html,
 body {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
   background: #09090f;
+  color: #f1f5f9;
 }
 
-/* Glassmorphism */
+/* ── Glassmorphism ─────────────────────────────────────────────────────────── */
 .glass {
   background: rgba(13, 13, 13, 0.084);
   backdrop-filter: blur(14px);
@@ -18,7 +30,7 @@ body {
   border: 1px solid rgba(255, 255, 255, .07);
 }
 
-/* Gradient text */
+/* ── Gradient text ─────────────────────────────────────────────────────────── */
 .gradient-text {
   background: linear-gradient(to right, #c084fc, #818cf8);
   -webkit-background-clip: text;
@@ -26,10 +38,11 @@ body {
   background-clip: text;
 }
 
-/* Animated gradient drop-zone border */
+/* ── Animated gradient drop-zone border ────────────────────────────────────── */
 .drop-shell {
   position: relative;
   border-radius: 1.5rem;
+  width: 100%;
 }
 
 .drop-shell::before {
@@ -55,22 +68,16 @@ body {
   z-index: 1;
   background: #0d0d1a;
   border-radius: 1.4rem;
+  width: 100%;
   transition: background .2s;
 }
 
 @keyframes gborder {
-
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-
-  50% {
-    background-position: 100% 50%;
-  }
+  0%, 100% { background-position: 0% 50%; }
+  50%       { background-position: 100% 50%; }
 }
 
-/* Waveform bars */
+/* ── Waveform bars ─────────────────────────────────────────────────────────── */
 .wbar {
   display: inline-block;
   width: 3px;
@@ -78,21 +85,15 @@ body {
   border-radius: 3px;
   background: linear-gradient(to top, #7c3aed, #a78bfa);
   animation: wdance 1.2s ease-in-out infinite;
+  flex-shrink: 0;
 }
 
 @keyframes wdance {
-
-  0%,
-  100% {
-    height: 3px;
-  }
-
-  50% {
-    height: var(--h, 18px);
-  }
+  0%, 100% { height: 3px; }
+  50%       { height: var(--h, 18px); }
 }
 
-/* Lyric lines */
+/* ── Lyric lines ───────────────────────────────────────────────────────────── */
 .lyric-line {
   border-left: 3px solid transparent;
   border-radius: .5rem;
@@ -100,6 +101,11 @@ body {
   transition: all .28s ease;
   cursor: default;
   animation: fadein .3s ease;
+  /* Fluid font: 13px on smallest phone → 15px on desktop */
+  font-size: clamp(0.8125rem, 2.2vw, 0.9375rem);
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 .lyric-line.active {
@@ -107,25 +113,16 @@ body {
   background: rgba(124, 58, 237, .18);
   border-left-color: #8b5cf6;
   font-weight: 600;
-  font-size: 1.05em;
+  font-size: clamp(0.875rem, 2.4vw, 1rem);
 }
 
 @keyframes fadein {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: none; }
 }
 
-/* SVG progress ring */
-.ring-track {
-  stroke: rgba(255, 255, 255, .06);
-}
+/* ── SVG progress ring ─────────────────────────────────────────────────────── */
+.ring-track { stroke: rgba(255, 255, 255, .06); }
 
 .ring-fill {
   transition: stroke-dashoffset .5s ease;
@@ -134,21 +131,12 @@ body {
   transform-origin: 50% 50%;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 4px;
-}
+/* ── Scrollbar ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 4px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: #4c1d95; border-radius: 2px; }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #4c1d95;
-  border-radius: 2px;
-}
-
-/* Seek bar */
+/* ── Seek bar (base) ───────────────────────────────────────────────────────── */
 input[type='range'] {
   -webkit-appearance: none;
   appearance: none;
@@ -156,6 +144,9 @@ input[type='range'] {
   background: rgba(255, 255, 255, .1);
   border-radius: 2px;
   outline: none;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 input[type='range']::-webkit-slider-thumb {
@@ -172,4 +163,166 @@ input[type='range']::-webkit-slider-thumb {
 input[type='range']::-webkit-slider-thumb:hover {
   background: #a78bfa;
   transform: scale(1.2);
+}
+
+/* ── Touch manipulation on all interactive elements ────────────────────────── */
+button,
+input[type='range'],
+#drop-zone,
+#library-list li,
+select {
+  touch-action: manipulation;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   MOBILE  (max-width: 768px)
+   Everything stacks vertically. No horizontal overflow. Touch-first sizing.
+══════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* Body: full column, no overflow */
+  body {
+    flex-direction: column !important;
+    height: 100dvh;          /* dynamic viewport height — safe on mobile browsers */
+    overflow: hidden;
+  }
+
+  /* ── Sidebar: compact header bar ── */
+  #sidebar {
+    width: 100% !important;
+    max-width: 100vw;
+    flex-shrink: 0;
+    border-right: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, .06);
+  }
+
+  /* ── Sidebar body: drawer that slides open ── */
+  #sidebar-body {
+    max-height: 55vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  #sidebar-body.open {
+    display: flex !important;
+    flex-direction: column;
+  }
+
+  /* ── Main: fill remaining space ── */
+  main {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+    width: 100%;
+    max-width: 100vw;
+  }
+
+  /* ── Scrollable content wrapper ── */
+  .scroll-area {
+    padding: 0.75rem !important;
+    gap: 0.75rem !important;
+  }
+
+  /* ── Drop zone: compact on mobile ── */
+  .drop-inner {
+    padding: 1.5rem 1rem !important;
+    gap: 0.75rem !important;
+  }
+
+  /* ── Now-playing strip ── */
+  #np-strip {
+    padding: 0.5rem 0.75rem !important;
+  }
+
+  #np-title {
+    font-size: 0.8125rem;
+    max-width: calc(100vw - 120px);  /* prevent overflow past waveform */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── Lyrics panel ── */
+  #lyrics-display {
+    padding: 0.5rem 0.75rem !important;
+  }
+
+  /* ── Player bar: two rows on very small screens ── */
+  #player-bar {
+    padding: 0.5rem 0.75rem !important;
+    flex-shrink: 0;
+  }
+
+  .player-row {
+    flex-wrap: wrap;
+    gap: 0.5rem !important;
+  }
+
+  /* ── Play/Pause button: large touch target ── */
+  #btn-play {
+    width: 3rem !important;
+    height: 3rem !important;
+    font-size: 1.25rem !important;
+    flex-shrink: 0;
+  }
+
+  /* ── Seek bar: taller touch target ── */
+  input[type='range'] {
+    height: 6px;
+    touch-action: pan-x;
+  }
+
+  input[type='range']::-webkit-slider-thumb {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* ── Time labels: don't shrink ── */
+  .time-label {
+    flex-shrink: 0;
+    width: 2.25rem;
+    font-size: 0.6875rem;
+  }
+
+  /* ── Analysis panel ── */
+  #analysis-panel {
+    padding: 0.75rem !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   DESKTOP  (min-width: 769px)
+   Restore the side-by-side layout.
+══════════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 769px) {
+  body {
+    flex-direction: row;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  #sidebar {
+    width: 14rem;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid rgba(255, 255, 255, .05);
+  }
+
+  #sidebar-body {
+    display: flex !important;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  #btn-library-toggle {
+    display: none !important;
+  }
+
+  #btn-play {
+    width: 2.5rem !important;
+    height: 2.5rem !important;
+    font-size: 1rem !important;
+  }
 }
