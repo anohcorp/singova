@@ -13,6 +13,11 @@
   padding: 0;
 }
 
+/* Hides the drop zone while a track is actively playing */
+.dz-hidden {
+  display: none !important;
+}
+
 html,
 body {
   width: 100%;

@@ -126,9 +126,9 @@ const Player = {
       }
       Lyrics.highlight(el.currentTime);
     });
-    el.addEventListener('play', () => { $('btn-play').textContent = '⏸'; $('waveform').style.display = 'flex'; });
-    el.addEventListener('pause', () => { $('btn-play').textContent = '▶'; $('waveform').style.display = 'none'; });
-    el.addEventListener('ended', () => { $('btn-play').textContent = '▶'; $('waveform').style.display = 'none'; });
+    el.addEventListener('play',  () => { $('btn-play').textContent = '⏸'; $('waveform').style.display = 'flex';  $('drop-zone').classList.add('dz-hidden'); });
+    el.addEventListener('pause', () => { $('btn-play').textContent = '▶'; $('waveform').style.display = 'none'; $('drop-zone').classList.remove('dz-hidden'); });
+    el.addEventListener('ended', () => { $('btn-play').textContent = '▶'; $('waveform').style.display = 'none'; $('drop-zone').classList.remove('dz-hidden'); });
 
     sb.addEventListener('mousedown', () => sb._dragging = true);
     sb.addEventListener('mouseup', () => { el.currentTime = +sb.value; sb._dragging = false; });
@@ -297,8 +297,8 @@ const App = {
       e.preventDefault();
       deferredPrompt = e;
       const btn = $('btn-install');
-      btn.classList.remove('hidden');
-      btn.onclick = () => { deferredPrompt.prompt(); deferredPrompt = null; btn.classList.add('hidden'); };
+      btn.style.display = 'block';
+      btn.onclick = () => { deferredPrompt.prompt(); deferredPrompt = null; btn.style.display = 'none'; };
     });
 
     if ('serviceWorker' in navigator) {
