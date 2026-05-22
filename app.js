@@ -5,17 +5,8 @@
 'use strict';
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-// API_BASE_URL priority:
-//   1. window.SINGOVA_API_URL  – set this in a <script> tag before app.js loads
-//                                when deploying to Render (or any cloud host).
-//   2. Fallback to localhost   – used for local development.
-//
-// Example (production index.html, before <script src="app.js">):
-//   <script>window.SINGOVA_API_URL = 'https://singova.onrender.com';</script>
-const API_BASE_URL = (window.SINGOVA_API_URL || 'http://localhost:3000').replace(/\/$/, '');
-
 const CONFIG = {
-  apiEndpoint : `${API_BASE_URL}/transcribe`,
+  apiEndpoint : 'https://singova.onrender.com/transcribe',
   mockMode    : false,   // set true to use built-in demo data without a server
   mockStepMs  : 800,
   maxHistory  : 50,
@@ -23,8 +14,8 @@ const CONFIG = {
 
 // ── MOCK DATA ─────────────────────────────────────────────────────────────────
 const MOCK_LYRICS = [
-  { t: 0,  l: '♪ Intro — silence before the storm' },
-  { t: 5,  l: 'Hello darkness, my old friend' },
+  { t: 0, l: '♪ Intro — silence before the storm' },
+  { t: 5, l: 'Hello darkness, my old friend' },
   { t: 10, l: "I've come to talk with you again" },
   { t: 16, l: 'Because a vision softly creeping' },
   { t: 22, l: 'Left its seeds while I was sleeping' },
@@ -33,10 +24,10 @@ const MOCK_LYRICS = [
 ];
 
 // ── UTILITIES ─────────────────────────────────────────────────────────────────
-const sleep = ms  => new Promise(r => setTimeout(r, ms));
-const esc   = str => String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-const fmt   = s   => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-const $     = id  => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = str => String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const $ = id => document.getElementById(id);
 
 // ── API LAYER ─────────────────────────────────────────────────────────────────
 const API = {
@@ -57,9 +48,9 @@ async function _realAnalyze(file, onProgress) {
   let data;
   try {
     const res = await fetch(CONFIG.apiEndpoint, {
-      method : 'POST',
+      method: 'POST',
       headers: { 'Accept': 'application/json' },
-      body   : fd,
+      body: fd,
     });
     clearInterval(timer);
 
@@ -77,7 +68,7 @@ async function _realAnalyze(file, onProgress) {
   onProgress(100, '✓ Analysis complete');
 
   // Accept both shapes the server might return
-  if (Array.isArray(data.lyrics))   return { lyrics: data.lyrics,   detectedLang: data.detectedLang   || 'en' };
+  if (Array.isArray(data.lyrics)) return { lyrics: data.lyrics, detectedLang: data.detectedLang || 'en' };
   if (Array.isArray(data.segments)) return { lyrics: segmentsToLines(data.segments), detectedLang: data.language || 'en' };
   throw new Error('Unexpected response from server.');
 }
@@ -104,9 +95,9 @@ function segmentsToLines(segments) {
 
 async function _mockAnalyze(file, onProgress) {
   const steps = [
-    [30,  '🎙 Sending to Groq Whisper…'],
-    [60,  '🤖 Transcribing audio…'],
-    [85,  '⏱ Aligning timestamps…'],
+    [30, '🎙 Sending to Groq Whisper…'],
+    [60, '🤖 Transcribing audio…'],
+    [85, '⏱ Aligning timestamps…'],
     [100, '✓ Done'],
   ];
   for (const [pct, msg] of steps) {
@@ -135,21 +126,21 @@ const Player = {
       }
       Lyrics.highlight(el.currentTime);
     });
-    el.addEventListener('play',  () => { $('btn-play').textContent = '⏸'; $('waveform').style.display = 'flex'; });
+    el.addEventListener('play', () => { $('btn-play').textContent = '⏸'; $('waveform').style.display = 'flex'; });
     el.addEventListener('pause', () => { $('btn-play').textContent = '▶'; $('waveform').style.display = 'none'; });
     el.addEventListener('ended', () => { $('btn-play').textContent = '▶'; $('waveform').style.display = 'none'; });
 
     sb.addEventListener('mousedown', () => sb._dragging = true);
-    sb.addEventListener('mouseup',   () => { el.currentTime = +sb.value; sb._dragging = false; });
+    sb.addEventListener('mouseup', () => { el.currentTime = +sb.value; sb._dragging = false; });
     $('btn-play').addEventListener('click', () => el.paused ? el.play() : el.pause());
   },
 
   load(file) {
     this.el.src = URL.createObjectURL(file);
-    this.el.play().catch(() => {});
-    $('np-title').textContent    = file.name.replace(/\.[^.]+$/, '');
-    $('np-sub').textContent      = 'Playing';
-    $('np-strip').style.display  = 'flex';
+    this.el.play().catch(() => { });
+    $('np-title').textContent = file.name.replace(/\.[^.]+$/, '');
+    $('np-sub').textContent = 'Playing';
+    $('np-strip').style.display = 'flex';
     $('player-bar').style.display = 'flex';
   },
 };
@@ -167,8 +158,8 @@ const Lyrics = {
     for (const l of lines) {
       await sleep(180);
       const p = document.createElement('p');
-      p.className   = 'lyric-line text-slate-400 text-sm';
-      p.dataset.t   = l.t;
+      p.className = 'lyric-line text-slate-400 text-sm';
+      p.dataset.t = l.t;
       p.textContent = l.l;
       $('lyrics-display').appendChild(p);
     }
@@ -179,8 +170,8 @@ const Lyrics = {
     let active = null;
     rows.forEach(p => { if (parseFloat(p.dataset.t) <= currentTime) active = p; });
     rows.forEach(p => {
-      if (p === active) { p.classList.add('active');    p.classList.remove('text-slate-400'); }
-      else              { p.classList.remove('active'); p.classList.add('text-slate-400');    }
+      if (p === active) { p.classList.add('active'); p.classList.remove('text-slate-400'); }
+      else { p.classList.remove('active'); p.classList.add('text-slate-400'); }
     });
     if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   },
@@ -189,7 +180,7 @@ const Lyrics = {
 // ── LIBRARY ───────────────────────────────────────────────────────────────────
 const Library = {
   STORE: 'singova_v2',
-  load()            { return JSON.parse(localStorage.getItem(this.STORE) || '[]'); },
+  load() { return JSON.parse(localStorage.getItem(this.STORE) || '[]'); },
   save(name, lyrics) {
     const lib = this.load().filter(t => t.name !== name);
     lib.unshift({ name, date: new Date().toLocaleDateString(), lyrics: lyrics || null });
@@ -223,7 +214,7 @@ const Library = {
         const entry = this.load().find(t => t.name === li.dataset.name);
         if (entry?.lyrics) {
           Lyrics.render(entry.lyrics);
-          $('np-title').textContent   = li.dataset.name.replace(/\.[^.]+$/, '');
+          $('np-title').textContent = li.dataset.name.replace(/\.[^.]+$/, '');
           $('np-strip').style.display = 'flex';
         }
       });
@@ -242,8 +233,8 @@ const Library = {
 // ── ANALYSIS UI ───────────────────────────────────────────────────────────────
 function setProgress(pct, msg) {
   $('analysis-step').textContent = msg;
-  $('analysis-pct').textContent  = pct + '%';
-  $('analysis-bar').style.width  = pct + '%';
+  $('analysis-pct').textContent = pct + '%';
+  $('analysis-bar').style.width = pct + '%';
   $('ring-fill').style.strokeDashoffset = 163.4 - (163.4 * pct / 100);
 }
 
@@ -254,7 +245,7 @@ const App = {
   setState(s) {
     this.state = s;
     $('analysis-panel').style.display = s === 'analyzing' ? 'flex' : 'none';
-    $('drop-icon').textContent  = { idle: '🎵', analyzing: '⏳', playing: '✓' }[s] || '🎵';
+    $('drop-icon').textContent = { idle: '🎵', analyzing: '⏳', playing: '✓' }[s] || '🎵';
     $('drop-title').textContent = { idle: 'Drop your MP3 here', analyzing: 'Analyzing…', playing: 'Drop another MP3' }[s] || 'Drop your MP3 here';
   },
 
@@ -287,7 +278,7 @@ const App = {
     Library.render();
 
     const dz = $('drop-zone');
-    dz.addEventListener('dragover',  e  => { e.preventDefault(); dz.classList.add('active'); });
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('active'); });
     dz.addEventListener('dragleave', () => dz.classList.remove('active'));
     dz.addEventListener('drop', e => {
       e.preventDefault();
@@ -311,7 +302,7 @@ const App = {
     });
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js').catch(() => {});
+      navigator.serviceWorker.register('service-worker.js').catch(() => { });
     }
   },
 };
