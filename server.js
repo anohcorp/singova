@@ -18,9 +18,25 @@ const app = express();
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use(express.static(__dirname));
 
-// Store upload in /tmp — only needed long enough to read and forward to Groq
+// ── UPLOAD DIRECTORY ──────────────────────────────────────────────────────────
+// Render (and most cloud hosts) provides /tmp as the only writable directory.
+// We verify it is writable at startup so failures appear in logs immediately.
+const UPLOAD_DIR = os.tmpdir();
+
+(function checkUploadDir() {
+  const testFile = `${UPLOAD_DIR}/.singova_write_test`;
+  try {
+    fs.writeFileSync(testFile, 'ok');
+    fs.unlinkSync(testFile);
+    console.log(`[startup] ✓ Upload dir writable: ${UPLOAD_DIR}`);
+  } catch (e) {
+    console.error(`[startup] ✗ Upload dir NOT writable (${UPLOAD_DIR}): ${e.message}`);
+    // Don't exit — let the first real upload surface the error with context.
+  }
+})();
+
 const upload = multer({
-  dest  : os.tmpdir(),
+  dest  : UPLOAD_DIR,
   limits: { fileSize: 100 * 1024 * 1024 },
 });
 
@@ -116,5 +132,7 @@ app.use((err, _req, res, _next) => {
 app.listen(PORT, () => {
   console.log(`\n🎤  Singova  →  http://localhost:${PORT}`);
   console.log(`    POST /transcribe   GET /health`);
-  console.log(`    Whisper: ${GROQ_API_KEY ? `✓ LIVE (${WHISPER_MODEL})` : '⚠ MOCK (add GROQ_API_KEY to .env)'}\n`);
+  console.log(`    Upload dir : ${UPLOAD_DIR}`);
+  console.log(`    Groq key   : ${GROQ_API_KEY ? `✓ set (${GROQ_API_KEY.slice(0, 8)}…)` : '✗ MISSING — set GROQ_API_KEY in Render environment'}`);
+  console.log(`    Whisper    : ${WHISPER_MODEL}\n`);
 });
