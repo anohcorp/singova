@@ -46,27 +46,11 @@ const API = {
 };
 
 async function _realAnalyze(file, onProgress) {
-  // ── Phase 1: DB pre-check (cheap GET, no upload needed) ──────────────────
-  onProgress(5, '🔍 Checking lyrics database…');
-  try {
-    const checkUrl = `${CONFIG.lyricsCheckEndpoint}?name=${encodeURIComponent(file.name)}`;
-    const checkRes = await fetch(checkUrl, { headers: { 'Accept': 'application/json' } });
-    if (checkRes.ok) {
-      const checkData = await checkRes.json();
-      if (checkData.found && Array.isArray(checkData.lyrics)) {
-        onProgress(100, '✓ Found in lyrics database!');
-        return { lyrics: checkData.lyrics, detectedLang: checkData.detectedLang || 'xx', source: 'db' };
-      }
-    }
-  } catch (_) {
-    // Network error on pre-check — silently fall through to Groq
-  }
-
-  // ── Phase 2: Groq Whisper fallback (full audio upload) ─────────────────
+  // Upload the audio file — the server handles Genius lookup + Whisper fallback
   const fd = new FormData();
   fd.append('audio', file, file.name);  // field name matches multer in server.js
 
-  onProgress(10, 'Uploading audio…');
+  onProgress(5, '🔎 Searching Genius database…');
   const timer = _startProgressAnimation(onProgress);
 
   let data;
@@ -89,20 +73,39 @@ async function _realAnalyze(file, onProgress) {
     throw err;
   }
 
-  onProgress(100, '✓ Analysis complete');
+  // Report what actually happened
+  if (data.source === 'genius') {
+    onProgress(100, `✓ Found on Genius!`);
+  } else {
+    onProgress(100, '✓ Transcription complete');
+  }
 
   // Accept both shapes the server might return
-  if (Array.isArray(data.lyrics)) return { lyrics: data.lyrics, detectedLang: data.detectedLang || 'en', source: data.source || 'whisper' };
-  if (Array.isArray(data.segments)) return { lyrics: segmentsToLines(data.segments), detectedLang: data.language || 'en', source: 'whisper' };
+  if (Array.isArray(data.lyrics)) return {
+    lyrics      : data.lyrics,
+    detectedLang: data.detectedLang || 'en',
+    source      : data.source || 'whisper',
+    songTitle   : data.songTitle   || null,
+    artistName  : data.artistName  || null,
+    geniusUrl   : data.geniusUrl   || null,
+  };
+  if (Array.isArray(data.segments)) return {
+    lyrics      : segmentsToLines(data.segments),
+    detectedLang: data.language || 'en',
+    source      : 'whisper',
+    songTitle   : null,
+    artistName  : null,
+    geniusUrl   : null,
+  };
   throw new Error('Unexpected response from server.');
 }
 
 function _startProgressAnimation(onProgress) {
   const steps = [
-    [25, '🎙 Sending to Groq Whisper…'],
-    [50, '🤖 Transcribing audio…'],
-    [75, '⏱ Aligning timestamps…'],
-    [90, 'Almost done…'],
+    [20, '🔎 Searching Genius database…'],
+    [45, '🎵 Uploading audio to Whisper…'],
+    [70, '🤖 Transcribing audio…'],
+    [88, '⏱ Aligning timestamps…'],
   ];
   let i = 0;
   return setInterval(() => {
@@ -402,15 +405,23 @@ const App = {
 
     this.setState('analyzing');
     setProgress(0, 'Starting…');
-    $('lyrics-display').innerHTML = '<p class="text-slate-600 italic text-sm animate-pulse">Checking lyrics database…</p>';
+    $('lyrics-display').innerHTML = '<p class="text-slate-600 italic text-sm animate-pulse">Searching Genius…</p>';
     Library.save(file.name, null);
     Library.render();
 
     try {
-      const { lyrics, detectedLang } = await API.analyzeTrack(file, setProgress);
+      const { lyrics, detectedLang, source, songTitle, artistName } = await API.analyzeTrack(file, setProgress);
 
       this.setState('playing');
       Player.load(file);
+
+      // Use Genius verified title/artist when available; fall back to filename
+      const displayTitle = songTitle || file.name.replace(/\.[^.]+$/, '');
+      $('np-title').textContent = displayTitle;
+      $('np-sub').textContent   = artistName
+        ? `${artistName} • ${source === 'genius' ? 'Genius' : 'Whisper'}`
+        : (source === 'genius' ? 'via Genius' : 'Playing');
+
       await Lyrics.stream(lyrics);
 
       // Snapshot originals so Translator can restore them if needed

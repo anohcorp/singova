@@ -221,18 +221,16 @@
     <div id="player-bar" class="glass"
       style="display:none;border-top:1px solid rgba(255,255,255,.05);padding:0.75rem 1rem;flex-shrink:0;">
 
-      <!-- Row 1: Big play button centred -->
-      <div style="display:flex;justify-content:center;margin-bottom:0.625rem;">
+      <!-- Single row: Play | time | seekbar | time -->
+      <div class="player-row"
+        style="display:flex;align-items:center;gap:0.5rem;width:100%;max-width:100%;">
+
         <button id="btn-play"
           style="width:3.5rem;height:3.5rem;border-radius:50%;background:linear-gradient(135deg,#0096c7,#00b4d8);border:none;color:#fff;font-size:1.375rem;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 20px rgba(0,180,216,.45);transition:transform .15s,background .2s;flex-shrink:0;"
           aria-label="Play / Pause">
           ▶
         </button>
-      </div>
 
-      <!-- Row 2: Seek bar + time -->
-      <div class="player-row"
-        style="display:flex;align-items:center;gap:0.5rem;width:100%;max-width:100%;">
         <span id="time-cur" class="time-label"
           style="font-size:0.6875rem;color:#64748b;font-family:monospace;flex-shrink:0;width:2.25rem;">0:00</span>
 

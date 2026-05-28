@@ -6,56 +6,20 @@ const multer  = require('multer');
 const dotenv  = require('dotenv');
 const os      = require('os');
 const fs      = require('fs');
-const path    = require('path');
 
 dotenv.config();
 
-// ── LYRICS DATABASE ───────────────────────────────────────────────────────────
-// Loaded once at startup. Keys are lowercase filenames without extension.
-let LYRICS_DB = {};
-(function loadLyricsDB() {
-  const dbPath = path.join(__dirname, 'lyrics.json');
-  try {
-    const raw = fs.readFileSync(dbPath, 'utf8');
-    LYRICS_DB = JSON.parse(raw);
-    // Remove the readme key so it never pollutes lookups
-    delete LYRICS_DB['_readme'];
-    console.log(`[startup] ✓ lyrics.json loaded — ${Object.keys(LYRICS_DB).length} song(s) in DB`);
-  } catch (e) {
-    console.warn(`[startup] ⚠ lyrics.json not found or invalid — DB lookups disabled (${e.message})`);
-  }
-})()
-
-/**
- * Normalise a filename for DB lookup:
- *   - strip extension
- *   - trim and lowercase
- *   - collapse runs of whitespace / dashes / underscores to single space
- */
-function normaliseKey(filename) {
-  return (filename || '')
-    .replace(/\.[^.]+$/, '')   // remove extension
-    .toLowerCase()
-    .replace(/[-_]+/g, ' ')   // dashes/underscores → space
-    .replace(/\s+/g, ' ')     // collapse whitespace
-    .trim();
-}
-
-/** Returns the lyrics array if found in the DB, otherwise null. */
-function lookupLyrics(filename) {
-  const key = normaliseKey(filename);
-  return LYRICS_DB[key] ?? null;
-}
-
-const PORT         = process.env.PORT || 3000;
-const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
-const WHISPER_MODEL = process.env.WHISPER_MODEL || 'whisper-large-v3';
+const PORT               = process.env.PORT               || 3000;
+const GROQ_API_KEY       = process.env.GROQ_API_KEY       || '';
+const WHISPER_MODEL      = process.env.WHISPER_MODEL      || 'whisper-large-v3';
+const CHAT_MODEL         = process.env.GROQ_CHAT_MODEL    || 'llama-3.3-70b-versatile';
+const GENIUS_ACCESS_TOKEN = process.env.GENIUS_ACCESS_TOKEN || '';
 
 const app = express();
 
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use(express.static(__dirname));
-app.use(express.json({ limit: '1mb' }));  // needed for /translate JSON body
+app.use(express.json({ limit: '1mb' }));   // for /translate JSON body
 
 // ── UPLOAD DIRECTORY ──────────────────────────────────────────────────────────
 // Render (and most cloud hosts) provides /tmp as the only writable directory.
@@ -70,7 +34,6 @@ const UPLOAD_DIR = os.tmpdir();
     console.log(`[startup] ✓ Upload dir writable: ${UPLOAD_DIR}`);
   } catch (e) {
     console.error(`[startup] ✗ Upload dir NOT writable (${UPLOAD_DIR}): ${e.message}`);
-    // Don't exit — let the first real upload surface the error with context.
   }
 })();
 
@@ -79,40 +42,204 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 },
 });
 
+// ── GENIUS HELPERS ────────────────────────────────────────────────────────────
+
+/**
+ * Parse a filename into { artist, title } candidates for Genius search.
+ * Handles common naming patterns:
+ *   "Artist - Title.mp3"          → { artist: "Artist", title: "Title" }
+ *   "01 - Artist - Title.mp3"     → { artist: "Artist", title: "Title" }
+ *   "01. Title.mp3"               → { artist: "",        title: "Title" }
+ *   "Title.mp3"                   → { artist: "",        title: "Title" }
+ */
+function parseFilename(filename) {
+  // Strip extension
+  const base = (filename || '').replace(/\.[^.]+$/, '').trim();
+
+  // Remove leading track numbers like "01 -", "1.", "01. "
+  const noNum = base.replace(/^\d+[.\s-]+/, '').trim();
+
+  // Try "Artist - Title" or "Artist – Title" (en-dash)
+  const sepMatch = noNum.match(/^(.+?)\s*[-–]\s*(.+)$/);
+  if (sepMatch) {
+    return { artist: sepMatch[1].trim(), title: sepMatch[2].trim() };
+  }
+
+  // Only a title (no separator found)
+  return { artist: '', title: noNum };
+}
+
+/**
+ * Build the best search query string for Genius.
+ * If both artist and title are present, use "Artist Title" for better recall.
+ */
+function buildSearchQuery({ artist, title }) {
+  return artist ? `${artist} ${title}` : title;
+}
+
+/**
+ * Search the Genius API and return the best matching song object, or null.
+ * Uses Bearer token from GENIUS_ACCESS_TOKEN env var.
+ */
+async function searchGenius(query) {
+  const url = `https://api.genius.com/search?q=${encodeURIComponent(query)}`;
+  const res = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${GENIUS_ACCESS_TOKEN}`,
+      'User-Agent'   : 'Singova/1.0 (https://singova.onrender.com)',
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Genius search API returned ${res.status}: ${res.statusText}`);
+  }
+
+  const data = await res.json();
+  const hits = data?.response?.hits ?? [];
+
+  // Return the first song-type hit
+  const songHit = hits.find(h => h.type === 'song');
+  return songHit?.result ?? null;
+}
+
+/**
+ * Fetch a Genius song page and scrape its lyrics.
+ *
+ * Genius lyrics live in one or more:
+ *   <div data-lyrics-container="true" ...> … </div>
+ *
+ * We use a depth-tracking walker (no external HTML parser) so nested
+ * elements inside the container are handled correctly.
+ *
+ * Returns an array of lyric lines (strings), or null if none found.
+ */
+async function scrapeLyricsPage(pageUrl) {
+  const res = await fetch(pageUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+                    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+                    'Chrome/124.0 Safari/537.36',
+      'Accept'    : 'text/html,application/xhtml+xml',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Genius page fetch returned ${res.status} for ${pageUrl}`);
+  }
+
+  const html = await res.text();
+  return parseLyricsFromHtml(html);
+}
+
+/**
+ * Extract lyrics from raw Genius HTML.
+ *
+ * Strategy:
+ *  1. Locate each `data-lyrics-container="true"` div.
+ *  2. Walk character-by-character tracking <div> nesting depth to find its
+ *     matching closing </div> — avoids regex edge-cases with nested elements.
+ *  3. Convert <br> → newline, strip all remaining HTML tags.
+ *  4. Decode common HTML entities.
+ *  5. Split into non-empty lines.
+ */
+function parseLyricsFromHtml(html) {
+  const MARKER = 'data-lyrics-container="true"';
+  const sections = [];
+
+  let searchFrom = 0;
+  while (true) {
+    const markerPos = html.indexOf(MARKER, searchFrom);
+    if (markerPos === -1) break;
+
+    // Advance past the opening tag's closing ">"
+    const openTagEnd = html.indexOf('>', markerPos);
+    if (openTagEnd === -1) break;
+    const contentStart = openTagEnd + 1;
+
+    // Depth-track to find the matching </div>
+    let depth = 1;
+    let pos   = contentStart;
+
+    while (depth > 0 && pos < html.length) {
+      const nextOpen  = html.indexOf('<div',  pos);
+      const nextClose = html.indexOf('</div', pos);
+
+      if (nextClose === -1) { pos = html.length; break; }
+
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        // Found a nested <div> before the next </div>
+        depth++;
+        pos = nextOpen + 4;
+      } else {
+        // Found a </div>
+        depth--;
+        if (depth === 0) {
+          // This is the matching close of our lyrics container
+          sections.push(html.slice(contentStart, nextClose));
+        } else {
+          pos = nextClose + 5;
+        }
+      }
+    }
+
+    searchFrom = markerPos + MARKER.length;
+  }
+
+  if (sections.length === 0) return null;
+
+  const rawText = sections
+    .join('\n')
+    // Line breaks
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Strip all remaining tags
+    .replace(/<[^>]+>/g, '')
+    // Decode common HTML entities
+    .replace(/&amp;/g,   '&')
+    .replace(/&lt;/g,    '<')
+    .replace(/&gt;/g,    '>')
+    .replace(/&quot;/g,  '"')
+    .replace(/&#x27;/g,  "'")
+    .replace(/&#39;/g,   "'")
+    .replace(/&nbsp;/g,  ' ')
+    .replace(/\u2019/g,  '\u2019')  // right single quotation mark — keep as-is
+    .replace(/\u2018/g,  '\u2018'); // left single quotation mark  — keep as-is
+
+  const lines = rawText
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0);
+
+  return lines.length > 0 ? lines : null;
+}
+
+/**
+ * Convert a plain array of lyric strings (from Genius, no timestamps) into the
+ * [{t, l}] shape the frontend expects.
+ *
+ * Since Genius does not provide per-line timestamps, we set t:0 for all lines
+ * and include source:'genius' so the frontend can treat them as static lyrics.
+ * The karaoke highlight will remain on the last line during playback — a known
+ * limitation when timestamps are unavailable.
+ */
+function linesToLyricsFormat(lines) {
+  return lines.map(l => ({ t: 0, l }));
+}
+
 // ── GET /health ───────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
   res.json({
-    status   : 'ok',
-    live     : !!GROQ_API_KEY,
-    whisper  : WHISPER_MODEL,
-    lyricsDB : Object.keys(LYRICS_DB).length,
+    status : 'ok',
+    groq   : !!GROQ_API_KEY,
+    genius : !!GENIUS_ACCESS_TOKEN,
+    whisper: WHISPER_MODEL,
+    chat   : CHAT_MODEL,
   });
-});
-
-// ── GET /lyrics-check ─────────────────────────────────────────────────────────
-// Query: ?name=<filename>   (e.g. ?name=The+Sound+of+Silence.mp3)
-// Returns: { found: true, lyrics: [...], source: 'db' }
-//       or: { found: false }
-// This lets the client do a cheap GET before committing to a full audio upload.
-app.get('/lyrics-check', (req, res) => {
-  const name = String(req.query.name || '').trim();
-  if (!name) return res.status(400).json({ error: 'Missing ?name= query parameter' });
-
-  const lyrics = lookupLyrics(name);
-  if (lyrics) {
-    console.log(`[lyrics-check] ✓ DB hit — "${normaliseKey(name)}"`);
-    return res.json({ found: true, lyrics, source: 'db', detectedLang: 'xx' });
-  }
-
-  console.log(`[lyrics-check] ✗ DB miss — "${normaliseKey(name)}"`);
-  return res.json({ found: false });
 });
 
 // ── POST /translate ───────────────────────────────────────────────────────────
 // Accepts: { lines: [{t, l}], targetLang: 'fr', targetLangName: 'French' }
 // Returns: { translated: [{t, l}] }  — same shape, timestamps preserved
-const CHAT_MODEL = process.env.GROQ_CHAT_MODEL || 'llama-3.3-70b-versatile';
-
 app.post('/translate', async (req, res) => {
   const { lines, targetLang, targetLangName } = req.body || {};
 
@@ -123,7 +250,6 @@ app.post('/translate', async (req, res) => {
   if (!GROQ_API_KEY)
     return res.status(503).json({ error: 'Translation unavailable — GROQ_API_KEY not set on server.' });
 
-  // Compact text block: one line per lyric, tab-separated index + timestamp
   const inputBlock = lines.map((l, i) => `${i}\t${l.t}\t${l.l}`).join('\n');
 
   const systemPrompt =
@@ -168,13 +294,11 @@ app.post('/translate', async (req, res) => {
     const completion = await groqRes.json();
     const raw = completion.choices?.[0]?.message?.content || '';
 
-    // Strip optional markdown fences the model might still add
     const jsonStr = raw.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '').trim();
     let parsed;
     try   { parsed = JSON.parse(jsonStr); }
     catch { throw new Error('Model returned non-JSON. Raw: ' + raw.slice(0, 160)); }
 
-    // Rebuild [{t, l}] in original order, using original timestamps for safety
     const translated = parsed.map(item => ({
       t: lines[item.i]?.t ?? item.t,
       l: String(item.l),
@@ -191,7 +315,12 @@ app.post('/translate', async (req, res) => {
 
 // ── POST /transcribe ──────────────────────────────────────────────────────────
 // Accepts: multipart/form-data { audio: <File> }
-// Returns: { lyrics: [{t, l}], detectedLang }
+// Returns: { lyrics: [{t, l}], detectedLang, source }
+//
+// Resolution order:
+//   1. Genius API  →  scrape lyrics page  →  return (no timestamps)
+//   2. Groq Whisper                        →  return (with timestamps)
+//   3. Mock data   (when GROQ_API_KEY missing, dev-only)
 app.post('/transcribe', upload.single('audio'), async (req, res) => {
   const file = req.file;
   if (!file) {
@@ -200,35 +329,60 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
 
   console.log(`\n[transcribe] ▶ ${file.originalname}  (${(file.size / 1024).toFixed(1)} KB)`);
 
-  // ── Step 1: check lyrics DB before touching Groq ──────────────────────────
-  const dbLyrics = lookupLyrics(file.originalname);
-  if (dbLyrics) {
-    fs.unlink(file.path, () => {}); // no need to keep the upload
-    console.log(`[transcribe] ✓ DB hit — returning cached lyrics for "${normaliseKey(file.originalname)}"`);
-    return res.json({ lyrics: dbLyrics, detectedLang: 'xx', source: 'db' });
+  // ── Step 1: Genius lookup ──────────────────────────────────────────────────
+  if (GENIUS_ACCESS_TOKEN) {
+    try {
+      const parsed = parseFilename(file.originalname);
+      const query  = buildSearchQuery(parsed);
+      console.log(`[genius] 🔍 Searching: "${query}"`);
+
+      const song = await searchGenius(query);
+
+      if (song) {
+        console.log(`[genius] ✓ Match: "${song.full_title}" — ${song.url}`);
+        const lines = await scrapeLyricsPage(song.url);
+
+        if (lines && lines.length > 0) {
+          fs.unlink(file.path, () => {});   // audio not needed — discard immediately
+          const lyrics = linesToLyricsFormat(lines);
+          console.log(`[genius] ✓ ${lyrics.length} lines scraped — returning lyrics`);
+          return res.json({
+            lyrics,
+            detectedLang: song.language || 'en',
+            source      : 'genius',
+            songTitle   : song.full_title,
+            artistName  : song.primary_artist?.name || '',
+            geniusUrl   : song.url,
+          });
+        }
+        console.log('[genius] ⚠ Page scraped but no lyrics found — falling back to Whisper');
+      } else {
+        console.log(`[genius] ✗ No match for "${query}" — falling back to Whisper`);
+      }
+    } catch (geniusErr) {
+      // Genius is optional — log and continue to Whisper
+      console.warn(`[genius] ⚠ Error (${geniusErr.message}) — falling back to Whisper`);
+    }
+  } else {
+    console.log('[genius] ⚠ GENIUS_ACCESS_TOKEN not set — skipping Genius lookup');
   }
-  console.log(`[transcribe] ✗ DB miss — falling back to Groq Whisper`);
 
+  // ── Step 2: Groq Whisper fallback ─────────────────────────────────────────
   try {
-    // Read the uploaded bytes
     const audioBuffer = await fs.promises.readFile(file.path);
-    fs.unlink(file.path, () => {}); // clean up temp file immediately
+    fs.unlink(file.path, () => {});   // clean up temp file
 
-    // If no API key, return mock data so the frontend still works
     if (!GROQ_API_KEY) {
       console.warn('[transcribe] No GROQ_API_KEY — returning mock data');
       return res.json(mockResponse());
     }
 
-    // Send raw audio directly to Groq Whisper
     const form = new FormData();
     form.append('file',            new Blob([audioBuffer], { type: 'audio/mpeg' }), file.originalname);
     form.append('model',           WHISPER_MODEL);
     form.append('response_format', 'verbose_json');
-    // Do NOT append 'language' — omitting it tells Whisper to auto-detect.
-    // The prompt steers output toward the original language with proper punctuation.
     form.append('prompt',          'Transcribe the lyrics exactly as sung, in their original language. Preserve punctuation, accents, and special characters accurately.');
-    form.append('temperature',     '0');   // most deterministic output
+    form.append('temperature',     '0');
 
     console.log(`[transcribe] → Groq ${WHISPER_MODEL}`);
 
@@ -247,7 +401,11 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
     const lyrics = segmentsToLines(transcription.segments || []);
     console.log(`[transcribe] ✓ ${lyrics.length} lines | lang=${transcription.language}`);
 
-    return res.json({ lyrics, detectedLang: transcription.language || 'en' });
+    return res.json({
+      lyrics,
+      detectedLang: transcription.language || 'en',
+      source      : 'whisper',
+    });
 
   } catch (err) {
     fs.unlink(file?.path, () => {});
@@ -255,6 +413,8 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
 
 // Groq verbose_json segments → [{t, l}]
 function segmentsToLines(segments) {
@@ -266,6 +426,7 @@ function segmentsToLines(segments) {
 function mockResponse() {
   return {
     detectedLang: 'en',
+    source      : 'mock',
     lyrics: [
       { t: 0.0,  l: 'Hello darkness, my old friend,' },
       { t: 5.0,  l: "I've come to talk with you again," },
@@ -277,16 +438,19 @@ function mockResponse() {
   };
 }
 
+// ── ERROR HANDLER ─────────────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
   console.error('[error]', err.message);
   res.status(err.status || 500).json({ error: err.message });
 });
 
+// ── START ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\n🎤  Singova  →  http://localhost:${PORT}`);
   console.log(`    POST /transcribe   POST /translate   GET /health`);
-  console.log(`    Upload dir : ${UPLOAD_DIR}`);
-  console.log(`    Groq key   : ${GROQ_API_KEY ? `✓ set (${GROQ_API_KEY.slice(0, 8)}…)` : '✗ MISSING — set GROQ_API_KEY in Render environment'}`);
-  console.log(`    Whisper    : ${WHISPER_MODEL}`);
-  console.log(`    Chat model : ${CHAT_MODEL}\n`);
+  console.log(`    Upload dir  : ${UPLOAD_DIR}`);
+  console.log(`    Groq key    : ${GROQ_API_KEY    ? `✓ set (${GROQ_API_KEY.slice(0, 8)}…)`    : '✗ MISSING'}`);
+  console.log(`    Genius key  : ${GENIUS_ACCESS_TOKEN ? `✓ set (${GENIUS_ACCESS_TOKEN.slice(0, 8)}…)` : '✗ not set — Genius lookup disabled'}`);
+  console.log(`    Whisper     : ${WHISPER_MODEL}`);
+  console.log(`    Chat model  : ${CHAT_MODEL}\n`);
 });
