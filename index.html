@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#8b5cf6" />
+  <meta name="theme-color" content="#050d1a" />
   <meta name="description" content="The Shazam of Karaoke — AI-powered synchronized lyrics." />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -25,8 +25,8 @@
     /* Structural layout — defined here so it loads before Tailwind and can't be overridden */
     body {
       display: flex;
-      background: #09090f;
-      color: #f1f5f9;
+      background: #050d1a;
+      color: #ffffff;
     }
 
     #sidebar {
@@ -70,21 +70,6 @@
     <!-- Collapsible body -->
     <div id="sidebar-body" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
 
-      <!-- Language selector -->
-      <div style="padding:1rem;border-bottom:1px solid rgba(255,255,255,.05);">
-        <label style="display:block;font-size:0.6875rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:0.5rem;">
-          Translate to
-        </label>
-        <select id="lang-select"
-          style="width:100%;font-size:0.75rem;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:0.5rem;padding:0.4rem 0.75rem;color:#cbd5e1;outline:none;cursor:pointer;">
-          <option value="en">🇬🇧 English</option>
-          <option value="fr">🇫🇷 French</option>
-          <option value="es">🇪🇸 Spanish</option>
-          <option value="ja">🇯🇵 Japanese</option>
-          <option value="ko">🇰🇷 Korean</option>
-          <option value="de">🇩🇪 German</option>
-        </select>
-      </div>
 
       <!-- Library -->
       <div style="flex:1;overflow-y:auto;padding:1rem;">
@@ -97,7 +82,7 @@
       <!-- PWA install -->
       <div style="padding:1rem;border-top:1px solid rgba(255,255,255,.05);">
         <button id="btn-install"
-          style="display:none;width:100%;font-size:0.75rem;padding:0.5rem;border-radius:0.5rem;background:rgba(88,28,135,.4);border:1px solid rgba(109,40,217,.3);color:#d8b4fe;cursor:pointer;transition:background .2s;">
+          style="display:none;width:100%;font-size:0.75rem;padding:0.5rem;border-radius:0.5rem;background:rgba(0,100,160,.4);border:1px solid rgba(0,180,216,.3);color:#7dd3fc;cursor:pointer;transition:background .2s;">
           ⬇ Install App
         </button>
       </div>
@@ -113,7 +98,7 @@
       class="glass">
       <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;">
         <div
-          style="width:2.25rem;height:2.25rem;border-radius:0.5rem;background:linear-gradient(135deg,#7c3aed,#4f46e5);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">
+          style="width:2.25rem;height:2.25rem;border-radius:0.5rem;background:linear-gradient(135deg,#0096c7,#00b4d8);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">
           🎵
         </div>
         <div style="flex:1;min-width:0;">
@@ -142,7 +127,7 @@
       <div id="drop-zone" class="drop-shell" style="cursor:pointer;">
         <div class="drop-inner" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:2.5rem 1.5rem;">
           <div id="drop-icon"
-            style="width:4rem;height:4rem;border-radius:1rem;background:rgba(109,40,217,.15);border:1px solid rgba(109,40,217,.3);display:flex;align-items:center;justify-content:center;font-size:2rem;">
+            style="width:4rem;height:4rem;border-radius:1rem;background:rgba(0,150,199,.15);border:1px solid rgba(0,180,216,.3);display:flex;align-items:center;justify-content:center;font-size:2rem;">
             🎵
           </div>
           <div style="text-align:center;">
@@ -165,8 +150,8 @@
               stroke-width="4" stroke-dasharray="163.4" stroke-dashoffset="163.4" />
             <defs>
               <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%"   stop-color="#7c3aed" />
-                <stop offset="100%" stop-color="#38bdf8" />
+                <stop offset="0%"   stop-color="#0096c7" />
+                <stop offset="100%" stop-color="#00e5ff" />
               </linearGradient>
             </defs>
           </svg>
@@ -177,7 +162,7 @@
             </p>
             <div style="height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;">
               <div id="analysis-bar"
-                style="height:100%;width:0%;background:linear-gradient(to right,#7c3aed,#6366f1);border-radius:3px;transition:width .5s ease;">
+                style="height:100%;width:0%;background:linear-gradient(to right,#0096c7,#00e5ff);border-radius:3px;transition:width .5s ease;">
               </div>
             </div>
             <p id="analysis-pct" style="font-size:0.75rem;color:#64748b;margin-top:0.25rem;">0%</p>
@@ -187,14 +172,43 @@
 
       <!-- Lyrics Panel -->
       <div class="glass" style="border-radius:1rem;display:flex;flex-direction:column;flex:1;min-height:12rem;">
+
+        <!-- Lyrics header -->
         <div style="display:flex;align-items:center;justify-content:space-between;padding:0.875rem 1rem 0.75rem;border-bottom:1px solid rgba(255,255,255,.05);">
           <h3 style="font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#64748b;">
             Lyrics
           </h3>
           <span id="lang-badge"
-            style="display:none;font-size:0.6875rem;padding:0.125rem 0.5rem;border-radius:9999px;background:rgba(88,28,135,.4);border:1px solid rgba(109,40,217,.3);color:#d8b4fe;">
+            style="display:none;font-size:0.6875rem;padding:0.125rem 0.5rem;border-radius:9999px;background:rgba(0,100,160,.4);border:1px solid rgba(0,180,216,.3);color:#7dd3fc;">
           </span>
         </div>
+
+        <!-- ── Translation bar (hidden until lyrics are visible) ─────────── -->
+        <div id="translate-bar" class="translate-bar" aria-hidden="true">
+          <span class="translate-bar__label">🌐 Translate to</span>
+          <select id="translate-lang" class="translate-bar__select">
+            <option value="">— Choose language —</option>
+            <option value="en">🇬🇧 English</option>
+            <option value="fr">🇫🇷 French</option>
+            <option value="es">🇪🇸 Spanish</option>
+            <option value="de">🇩🇪 German</option>
+            <option value="it">🇮🇹 Italian</option>
+            <option value="pt">🇧🇷 Portuguese</option>
+            <option value="ru">🇷🇺 Russian</option>
+            <option value="ar">🇸🇦 Arabic</option>
+            <option value="zh">🇨🇳 Chinese (Simplified)</option>
+            <option value="ja">🇯🇵 Japanese</option>
+            <option value="ko">🇰🇷 Korean</option>
+            <option value="hi">🇮🇳 Hindi</option>
+            <option value="nl">🇳🇱 Dutch</option>
+            <option value="pl">🇵🇱 Polish</option>
+            <option value="sv">🇸🇪 Swedish</option>
+            <option value="tr">🇹🇷 Turkish</option>
+          </select>
+          <button id="btn-translate" class="translate-bar__btn">Translate</button>
+        </div>
+
+        <!-- Lyrics content -->
         <div id="lyrics-display"
           style="flex:1;overflow-y:auto;padding:0.75rem 1rem;display:flex;flex-direction:column;gap:0.25rem;">
           <p style="color:#475569;font-style:italic;font-size:0.875rem;">Drop an MP3 to begin…</p>
@@ -210,7 +224,7 @@
       <!-- Row 1: Big play button centred -->
       <div style="display:flex;justify-content:center;margin-bottom:0.625rem;">
         <button id="btn-play"
-          style="width:3.5rem;height:3.5rem;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;color:#fff;font-size:1.375rem;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.45);transition:transform .15s,background .2s;flex-shrink:0;"
+          style="width:3.5rem;height:3.5rem;border-radius:50%;background:linear-gradient(135deg,#0096c7,#00b4d8);border:none;color:#fff;font-size:1.375rem;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 20px rgba(0,180,216,.45);transition:transform .15s,background .2s;flex-shrink:0;"
           aria-label="Play / Pause">
           ▶
         </button>
@@ -223,7 +237,7 @@
           style="font-size:0.6875rem;color:#64748b;font-family:monospace;flex-shrink:0;width:2.25rem;">0:00</span>
 
         <input id="seek-bar" type="range" min="0" max="100" value="0"
-          style="flex:1 1 0;min-width:0;max-width:100%;accent-color:#8b5cf6;" />
+          style="flex:1 1 0;min-width:0;max-width:100%;accent-color:#00b4d8;" />
 
         <span id="time-dur" class="time-label"
           style="font-size:0.6875rem;color:#64748b;font-family:monospace;flex-shrink:0;width:2.25rem;text-align:right;">0:00</span>

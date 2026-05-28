@@ -332,3 +332,83 @@ select {
     font-size: 1rem !important;
   }
 }
+
+/* ── Translation bar ───────────────────────────────────────────────────────── */
+/*
+   Hidden by default (max-height:0, opacity:0).
+   JS adds .visible after lyrics finish streaming → smooth reveal.
+   Removed when a new file is dropped.
+*/
+.translate-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+  padding: 0 1rem;
+  border-bottom: 1px solid rgba(0, 180, 216, .10);
+  background: rgba(0, 20, 50, .25);
+
+  /* Slide-in animation via max-height + opacity */
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height .45s cubic-bezier(.4, 0, .2, 1),
+              opacity    .35s ease                        ,
+              padding    .45s ease                        ;
+}
+
+.translate-bar.visible {
+  max-height: 4rem;     /* taller than any content to ensure smooth open */
+  opacity: 1;
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+}
+
+.translate-bar__label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #64748b;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.translate-bar__select {
+  flex: 1 1 8rem;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-family: 'Inter', sans-serif;
+  background: rgba(0, 20, 50, .55);
+  border: 1px solid rgba(0, 180, 216, .25);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.625rem;
+  color: #cbd5e1;
+  outline: none;
+  cursor: pointer;
+  transition: border-color .2s;
+}
+
+.translate-bar__select:focus {
+  border-color: #00b4d8;
+}
+
+.translate-bar__btn {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  padding: 0.375rem 0.875rem;
+  border-radius: 0.5rem;
+  border: none;
+  background: linear-gradient(135deg, #0096c7, #00b4d8);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity .2s, transform .15s;
+  white-space: nowrap;
+}
+
+.translate-bar__btn:hover  { opacity: .88; }
+.translate-bar__btn:active { transform: scale(.96); }
+.translate-bar__btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}

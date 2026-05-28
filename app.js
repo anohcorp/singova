@@ -259,6 +259,23 @@ function setProgress(pct, msg) {
   $('ring-fill').style.strokeDashoffset = 163.4 - (163.4 * pct / 100);
 }
 
+// ── TRANSLATION BAR ───────────────────────────────────────────────────────────
+function showTranslateBar() {
+  const bar = $('translate-bar');
+  if (!bar) return;
+  bar.classList.add('visible');
+  bar.setAttribute('aria-hidden', 'false');
+  // Reset dropdown to placeholder each time a new track is loaded
+  $('translate-lang').value = '';
+}
+
+function hideTranslateBar() {
+  const bar = $('translate-bar');
+  if (!bar) return;
+  bar.classList.remove('visible');
+  bar.setAttribute('aria-hidden', 'true');
+}
+
 // ── APP ───────────────────────────────────────────────────────────────────────
 const App = {
   state: 'idle',
@@ -273,6 +290,9 @@ const App = {
   async handleFile(file) {
     if (!file || !file.type.includes('audio')) return;
 
+    // Hide translate bar immediately when a new file is dropped
+    hideTranslateBar();
+
     this.setState('analyzing');
     setProgress(0, 'Starting…');
     $('lyrics-display').innerHTML = '<p class="text-slate-600 italic text-sm animate-pulse">Checking lyrics database…</p>';
@@ -285,6 +305,9 @@ const App = {
       this.setState('playing');
       Player.load(file);
       await Lyrics.stream(lyrics);
+
+      // Reveal translate bar smoothly after lyrics finish streaming
+      showTranslateBar();
 
       Library.save(file.name, lyrics);
       Library.render();
@@ -320,6 +343,14 @@ const App = {
       const btn = $('btn-install');
       btn.style.display = 'block';
       btn.onclick = () => { deferredPrompt.prompt(); deferredPrompt = null; btn.style.display = 'none'; };
+    });
+
+    // Translate button
+    $('btn-translate').addEventListener('click', () => {
+      const lang = $('translate-lang').value;
+      if (!lang) return;
+      // TODO: call translation API — hooked up in the next step
+      console.log('[translate] selected language:', lang);
     });
 
     if ('serviceWorker' in navigator) {
