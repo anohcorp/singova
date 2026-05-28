@@ -11,6 +11,9 @@ const CONFIG = {
   get lyricsCheckEndpoint() {
     return this.apiEndpoint.replace(/\/transcribe$/, '') + '/lyrics-check';
   },
+  get translateEndpoint() {
+    return this.apiEndpoint.replace(/\/transcribe$/, '') + '/translate';
+  },
   mockMode    : false,   // set true to use built-in demo data without a server
   mockStepMs  : 800,
   maxHistory  : 50,
@@ -259,6 +262,110 @@ function setProgress(pct, msg) {
   $('ring-fill').style.strokeDashoffset = 163.4 - (163.4 * pct / 100);
 }
 
+// ── TRANSLATOR ────────────────────────────────────────────────────────────────
+/**
+ * Translator
+ *  - Reads current lyrics from the DOM ({t, l} pairs via data-t attributes)
+ *  - Sends them to POST /translate with the chosen language
+ *  - Re-renders the lyrics display with translated lines (timestamps intact)
+ *  - Keeps a backup of original lines so a new drop resets cleanly
+ */
+const Translator = {
+  _busy        : false,
+  _origLines   : null,   // [{t, l}] snapshot before any translation
+
+  /** Call once in App.init() to wire the button. */
+  init() {
+    $('btn-translate').addEventListener('click', () => this._handleClick());
+    // Reset when dropdown changes back to placeholder
+    $('translate-lang').addEventListener('change', () => {
+      if (!$('translate-lang').value) this._restoreOriginal();
+    });
+  },
+
+  /** Store a fresh snapshot of the original lyrics (call after every stream). */
+  snapshot(lines) {
+    this._origLines = lines.map(l => ({ ...l }));
+  },
+
+  /** Extract current {t, l} pairs from the live DOM. */
+  _linesFromDOM() {
+    return Array.from($('lyrics-display').querySelectorAll('.lyric-line'))
+      .map(p => ({ t: parseFloat(p.dataset.t) || 0, l: p.textContent }));
+  },
+
+  _restoreOriginal() {
+    if (this._origLines) Lyrics.render(this._origLines);
+  },
+
+  async _handleClick() {
+    if (this._busy) return;
+
+    const langSelect = $('translate-lang');
+    const targetLang = langSelect.value;
+    if (!targetLang) return;
+
+    // Derive a human-readable name from the selected <option>
+    const targetLangName = langSelect.options[langSelect.selectedIndex].text
+      .replace(/^[^\w]+/, '')  // strip leading flag emoji
+      .trim();
+
+    // Grab lines from the DOM (works on both original and already-translated text)
+    const lines = this._linesFromDOM();
+    if (!lines.length) return;
+
+    // ── UI: loading state ──
+    this._busy = true;
+    const btn = $('btn-translate');
+    const prevLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Translating…';
+
+    try {
+      const res = await fetch(CONFIG.translateEndpoint, {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body   : JSON.stringify({ lines, targetLang, targetLangName }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+      if (!Array.isArray(data.translated)) throw new Error('Unexpected response from /translate');
+
+      // Smooth re-render with translated lines (same timestamps → sync still works)
+      await Lyrics.stream(data.translated);
+
+      // Update lang badge
+      const badge = $('lang-badge');
+      if (badge) {
+        badge.textContent = targetLangName;
+        badge.style.display = 'inline';
+      }
+
+      btn.textContent = '✓ Translated';
+      setTimeout(() => { btn.textContent = prevLabel; btn.disabled = false; this._busy = false; }, 2500);
+
+    } catch (err) {
+      // Show error inline below the translate bar, auto-clear after 5 s
+      let errEl = $('translate-error');
+      if (!errEl) {
+        errEl = Object.assign(document.createElement('p'), {
+          id        : 'translate-error',
+          className : 'text-red-400 text-xs',
+          style     : 'padding:0.25rem 1rem 0.5rem;margin:0;',
+        });
+        $('translate-bar').insertAdjacentElement('afterend', errEl);
+      }
+      errEl.textContent = `⚠ ${err.message}`;
+      setTimeout(() => errEl.remove(), 5000);
+
+      btn.textContent = prevLabel;
+      btn.disabled = false;
+      this._busy = false;
+    }
+  },
+};
+
 // ── TRANSLATION BAR ───────────────────────────────────────────────────────────
 function showTranslateBar() {
   const bar = $('translate-bar');
@@ -306,6 +413,9 @@ const App = {
       Player.load(file);
       await Lyrics.stream(lyrics);
 
+      // Snapshot originals so Translator can restore them if needed
+      Translator.snapshot(lyrics);
+
       // Reveal translate bar smoothly after lyrics finish streaming
       showTranslateBar();
 
@@ -346,12 +456,7 @@ const App = {
     });
 
     // Translate button
-    $('btn-translate').addEventListener('click', () => {
-      const lang = $('translate-lang').value;
-      if (!lang) return;
-      // TODO: call translation API — hooked up in the next step
-      console.log('[translate] selected language:', lang);
-    });
+    Translator.init();
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('service-worker.js').catch(() => { });

@@ -55,6 +55,7 @@ const app = express();
 
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use(express.static(__dirname));
+app.use(express.json({ limit: '1mb' }));  // needed for /translate JSON body
 
 // ── UPLOAD DIRECTORY ──────────────────────────────────────────────────────────
 // Render (and most cloud hosts) provides /tmp as the only writable directory.
@@ -105,6 +106,87 @@ app.get('/lyrics-check', (req, res) => {
 
   console.log(`[lyrics-check] ✗ DB miss — "${normaliseKey(name)}"`);
   return res.json({ found: false });
+});
+
+// ── POST /translate ───────────────────────────────────────────────────────────
+// Accepts: { lines: [{t, l}], targetLang: 'fr', targetLangName: 'French' }
+// Returns: { translated: [{t, l}] }  — same shape, timestamps preserved
+const CHAT_MODEL = process.env.GROQ_CHAT_MODEL || 'llama-3.3-70b-versatile';
+
+app.post('/translate', async (req, res) => {
+  const { lines, targetLang, targetLangName } = req.body || {};
+
+  if (!Array.isArray(lines) || lines.length === 0)
+    return res.status(400).json({ error: 'Body must contain a non-empty "lines" array.' });
+  if (!targetLang || !targetLangName)
+    return res.status(400).json({ error: '"targetLang" and "targetLangName" are required.' });
+  if (!GROQ_API_KEY)
+    return res.status(503).json({ error: 'Translation unavailable — GROQ_API_KEY not set on server.' });
+
+  // Compact text block: one line per lyric, tab-separated index + timestamp
+  const inputBlock = lines.map((l, i) => `${i}\t${l.t}\t${l.l}`).join('\n');
+
+  const systemPrompt =
+    `You are a professional lyrics translator. ` +
+    `Translate song lyrics into ${targetLangName} (language code: ${targetLang}). ` +
+    `Rules: ` +
+    `1. Preserve the poetic feel and natural rhythm. ` +
+    `2. Keep exactly the same number of lines as the input. ` +
+    `3. Return ONLY a valid JSON array — no markdown, no extra text. ` +
+    `4. Each element: {"i": <index>, "t": <original_timestamp_number>, "l": "<translated line>"}. ` +
+    `5. Never omit lines or alter timestamps.`;
+
+  const userPrompt =
+    `Translate the following lyrics into ${targetLangName}.\n` +
+    `Input format per line: index TAB timestamp TAB lyric\n\n` +
+    inputBlock;
+
+  console.log(`[translate] → ${targetLangName} (${targetLang}) | ${lines.length} lines | model=${CHAT_MODEL}`);
+
+  try {
+    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method : 'POST',
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type' : 'application/json',
+      },
+      body: JSON.stringify({
+        model      : CHAT_MODEL,
+        temperature: 0.3,
+        messages   : [
+          { role: 'system', content: systemPrompt },
+          { role: 'user',   content: userPrompt   },
+        ],
+      }),
+    });
+
+    if (!groqRes.ok) {
+      const detail = await groqRes.text().catch(() => groqRes.statusText);
+      throw new Error(`Groq ${groqRes.status}: ${detail}`);
+    }
+
+    const completion = await groqRes.json();
+    const raw = completion.choices?.[0]?.message?.content || '';
+
+    // Strip optional markdown fences the model might still add
+    const jsonStr = raw.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '').trim();
+    let parsed;
+    try   { parsed = JSON.parse(jsonStr); }
+    catch { throw new Error('Model returned non-JSON. Raw: ' + raw.slice(0, 160)); }
+
+    // Rebuild [{t, l}] in original order, using original timestamps for safety
+    const translated = parsed.map(item => ({
+      t: lines[item.i]?.t ?? item.t,
+      l: String(item.l),
+    }));
+
+    console.log(`[translate] ✓ ${translated.length} lines → ${targetLangName}`);
+    return res.json({ translated, targetLang, targetLangName });
+
+  } catch (err) {
+    console.error('[translate] ✗', err.message);
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // ── POST /transcribe ──────────────────────────────────────────────────────────
@@ -202,8 +284,9 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`\n🎤  Singova  →  http://localhost:${PORT}`);
-  console.log(`    POST /transcribe   GET /health`);
+  console.log(`    POST /transcribe   POST /translate   GET /health`);
   console.log(`    Upload dir : ${UPLOAD_DIR}`);
   console.log(`    Groq key   : ${GROQ_API_KEY ? `✓ set (${GROQ_API_KEY.slice(0, 8)}…)` : '✗ MISSING — set GROQ_API_KEY in Render environment'}`);
-  console.log(`    Whisper    : ${WHISPER_MODEL}\n`);
+  console.log(`    Whisper    : ${WHISPER_MODEL}`);
+  console.log(`    Chat model : ${CHAT_MODEL}\n`);
 });
