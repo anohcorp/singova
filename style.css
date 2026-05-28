@@ -253,22 +253,29 @@ select {
     padding: 0.5rem 0.75rem !important;
   }
 
-  /* ── Player bar: two rows on very small screens ── */
+  /* ── Player bar: single compact row on mobile ── */
   #player-bar {
     padding: 0.5rem 0.75rem !important;
     flex-shrink: 0;
+    flex-direction: row !important;
+    align-items: center;
+    gap: 0.5rem;
   }
 
+  /* Seek row: no wrapping, fills remaining space */
   .player-row {
-    flex-wrap: wrap;
-    gap: 0.5rem !important;
+    flex: 1 1 0;
+    flex-wrap: nowrap !important;
+    gap: 0.375rem !important;
+    align-items: center;
+    min-width: 0;
   }
 
-  /* ── Play/Pause button: large touch target ── */
+  /* ── Play/Pause button: compact touch target ── */
   #btn-play {
-    width: 3rem !important;
-    height: 3rem !important;
-    font-size: 1.25rem !important;
+    width: 2.25rem !important;
+    height: 2.25rem !important;
+    font-size: 1rem !important;
     flex-shrink: 0;
   }
 
@@ -279,11 +286,11 @@ select {
   }
 
   input[type='range']::-webkit-slider-thumb {
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
   }
 
-  /* ── Time labels: don't shrink ── */
+  /* ── Time labels: fixed width, never shrink ── */
   .time-label {
     flex-shrink: 0;
     width: 2.25rem;
