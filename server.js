@@ -314,13 +314,116 @@ app.post('/translate', async (req, res) => {
 });
 
 // ── POST /transcribe ──────────────────────────────────────────────────────────
-// Accepts: multipart/form-data { audio: <File> }
-// Returns: { lyrics: [{t, l}], detectedLang, source }
+// Accepts : multipart/form-data { audio: <File> }
+// Returns : { lyrics: [{t, l}], detectedLang, source }
 //
-// Resolution order:
-//   1. Genius API  →  scrape lyrics page  →  return (no timestamps)
-//   2. Groq Whisper                        →  return (with timestamps)
-//   3. Mock data   (when GROQ_API_KEY missing, dev-only)
+// Strict resolution order — guaranteed by structure, not by flags:
+//   1. Genius API   → scrape lyrics page → res.json() + RETURN   (Groq never called)
+//   2. Groq Whisper → transcribe audio   → res.json() + RETURN   (only if Genius failed)
+//   3. Mock data    → dev-only fallback  → res.json() + RETURN   (only if no API key)
+//
+// Each phase is an isolated async helper with its own try/catch.
+// The route handler is a plain if/else — if geniusResult is truthy, we stop.
+
+async function tryGenius(filename) {
+  // Returns a response-ready object on success, or null on any failure/miss.
+  if (!GENIUS_ACCESS_TOKEN) {
+    console.log('[genius] ⚠ GENIUS_ACCESS_TOKEN not set — skipping');
+    return null;
+  }
+
+  try {
+    const parsed = parseFilename(filename);
+    const query  = buildSearchQuery(parsed);
+    console.log(`[genius] 🔍 Searching: "${query}"`);
+
+    const song = await searchGenius(query);
+    if (!song) {
+      console.log(`[genius] ✗ No match for "${query}"`);
+      return null;   // ← explicit null: caller will use Whisper
+    }
+
+    console.log(`[genius] ✓ Match: "${song.full_title}" — ${song.url}`);
+    const lines = await scrapeLyricsPage(song.url);
+
+    if (!lines || lines.length === 0) {
+      console.log('[genius] ⚠ Page fetched but no lyrics extracted');
+      return null;   // ← explicit null: caller will use Whisper
+    }
+
+    const lyrics = linesToLyricsFormat(lines);
+    console.log(`[genius] ✓ ${lyrics.length} lines — Genius path complete, Groq will NOT be called`);
+
+    // ✅ Genius succeeded — return payload; route handler will send & exit
+    return {
+      lyrics,
+      detectedLang: song.language || 'en',
+      source      : 'genius',
+      songTitle   : song.full_title,
+      artistName  : song.primary_artist?.name || '',
+      geniusUrl   : song.url,
+    };
+
+  } catch (err) {
+    // Any network / parse error is non-fatal — log and signal fallback
+    console.warn(`[genius] ⚠ Error: ${err.message} — Groq Whisper will be used instead`);
+    return null;
+  }
+}
+
+async function tryWhisper(file) {
+  // Returns a response-ready object on success, throws on unrecoverable error.
+  const audioBuffer = await fs.promises.readFile(file.path);
+  fs.unlink(file.path, () => {});   // discard temp file immediately after read
+
+  if (!GROQ_API_KEY) {
+    console.warn('[whisper] No GROQ_API_KEY — returning mock data');
+    return mockResponse();
+  }
+
+  const extMime = {
+    mp3 : 'audio/mpeg', m4a: 'audio/mp4',  mp4: 'audio/mp4',
+    wav : 'audio/wav',  ogg: 'audio/ogg',  flac: 'audio/flac',
+    webm: 'audio/webm',
+  };
+  const ext  = (file.originalname.split('.').pop() || 'mp3').toLowerCase();
+  const mime = extMime[ext] || 'audio/mpeg';
+
+  const form = new FormData();
+  form.append('file',  new Blob([audioBuffer], { type: mime }), file.originalname);
+  form.append('model', WHISPER_MODEL);
+  form.append('response_format', 'verbose_json');
+  // temperature 0.2: disables Whisper's silence-abort heuristic that causes early cutoff
+  form.append('temperature', '0.2');
+  // Keeps context alive across instrumental gaps so transcription continues
+  form.append('condition_on_previous_text', 'true');
+  // Short vocab hint — no prose Whisper can echo as prompt leakage
+  form.append('prompt', 'Song lyrics.');
+
+  console.log(`[whisper] → Groq ${WHISPER_MODEL} (ext=${ext})`);
+
+  const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method : 'POST',
+    headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
+    body   : form,
+  });
+
+  if (!groqRes.ok) {
+    const detail = await groqRes.text().catch(() => groqRes.statusText);
+    throw new Error(`Groq ${groqRes.status}: ${detail}`);
+  }
+
+  const transcription = await groqRes.json();
+  const lyrics = segmentsToLines(transcription.segments || []);
+  console.log(`[whisper] ✓ ${lyrics.length} lines | lang=${transcription.language}`);
+
+  return {
+    lyrics,
+    detectedLang: transcription.language || 'en',
+    source      : 'whisper',
+  };
+}
+
 app.post('/transcribe', upload.single('audio'), async (req, res) => {
   const file = req.file;
   if (!file) {
@@ -329,103 +432,21 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
 
   console.log(`\n[transcribe] ▶ ${file.originalname}  (${(file.size / 1024).toFixed(1)} KB)`);
 
-  // ── Step 1: Genius lookup ──────────────────────────────────────────────────
-  if (GENIUS_ACCESS_TOKEN) {
-    try {
-      const parsed = parseFilename(file.originalname);
-      const query  = buildSearchQuery(parsed);
-      console.log(`[genius] 🔍 Searching: "${query}"`);
+  // ── STEP 1: Genius ────────────────────────────────────────────────────────
+  const geniusResult = await tryGenius(file.originalname);
 
-      const song = await searchGenius(query);
-
-      if (song) {
-        console.log(`[genius] ✓ Match: "${song.full_title}" — ${song.url}`);
-        const lines = await scrapeLyricsPage(song.url);
-
-        if (lines && lines.length > 0) {
-          fs.unlink(file.path, () => {});   // audio not needed — discard immediately
-          const lyrics = linesToLyricsFormat(lines);
-          console.log(`[genius] ✓ ${lyrics.length} lines scraped — returning lyrics`);
-          return res.json({
-            lyrics,
-            detectedLang: song.language || 'en',
-            source      : 'genius',
-            songTitle   : song.full_title,
-            artistName  : song.primary_artist?.name || '',
-            geniusUrl   : song.url,
-          });
-        }
-        console.log('[genius] ⚠ Page scraped but no lyrics found — falling back to Whisper');
-      } else {
-        console.log(`[genius] ✗ No match for "${query}" — falling back to Whisper`);
-      }
-    } catch (geniusErr) {
-      // Genius is optional — log and continue to Whisper
-      console.warn(`[genius] ⚠ Error (${geniusErr.message}) — falling back to Whisper`);
-    }
-  } else {
-    console.log('[genius] ⚠ GENIUS_ACCESS_TOKEN not set — skipping Genius lookup');
+  if (geniusResult) {
+    // ✅ Genius succeeded — send response and EXIT immediately.
+    //    Groq/Whisper is never called.
+    fs.unlink(file.path, () => {});   // audio file is no longer needed
+    return res.json(geniusResult);
   }
 
-  // ── Step 2: Groq Whisper fallback ─────────────────────────────────────────
+  // ── STEP 2: Groq Whisper (only reached if Genius returned null) ───────────
+  console.log('[transcribe] Genius returned no result — calling Groq Whisper now');
   try {
-    const audioBuffer = await fs.promises.readFile(file.path);
-    fs.unlink(file.path, () => {});   // clean up temp file
-
-    if (!GROQ_API_KEY) {
-      console.warn('[transcribe] No GROQ_API_KEY — returning mock data');
-      return res.json(mockResponse());
-    }
-
-    // Derive MIME type from the original file extension for accuracy
-    const extMime = {
-      mp3: 'audio/mpeg', m4a: 'audio/mp4', mp4: 'audio/mp4',
-      wav: 'audio/wav',  ogg: 'audio/ogg', flac: 'audio/flac',
-      webm: 'audio/webm',
-    };
-    const ext  = (file.originalname.split('.').pop() || 'mp3').toLowerCase();
-    const mime = extMime[ext] || 'audio/mpeg';
-
-    const form = new FormData();
-    form.append('file',  new Blob([audioBuffer], { type: mime }), file.originalname);
-    form.append('model', WHISPER_MODEL);
-    form.append('response_format', 'verbose_json');
-
-    // temperature: 0.2 (NOT 0) deliberately — Whisper's internal silence-detection
-    // heuristic aborts transcription early when temperature=0 and it judges a
-    // region as low-speech. A small non-zero value disables that abort and lets
-    // Whisper continue through instrumental bridges and pauses.
-    form.append('temperature', '0.2');
-
-    // Keep context across long gaps so the model doesn't lose track of the song
-    form.append('condition_on_previous_text', 'true');
-
-    // Short vocabulary-hint — no full sentences Whisper can echo back
-    form.append('prompt', 'Song lyrics.');
-
-    console.log(`[transcribe] → Groq ${WHISPER_MODEL} (ext=${ext})`);
-
-    const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method : 'POST',
-      headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
-      body   : form,
-    });
-
-    if (!groqRes.ok) {
-      const detail = await groqRes.text().catch(() => groqRes.statusText);
-      throw new Error(`Groq ${groqRes.status}: ${detail}`);
-    }
-
-    const transcription = await groqRes.json();
-    const lyrics = segmentsToLines(transcription.segments || []);
-    console.log(`[transcribe] ✓ ${lyrics.length} lines | lang=${transcription.language}`);
-
-    return res.json({
-      lyrics,
-      detectedLang: transcription.language || 'en',
-      source      : 'whisper',
-    });
-
+    const whisperResult = await tryWhisper(file);
+    return res.json(whisperResult);
   } catch (err) {
     fs.unlink(file?.path, () => {});
     console.error('[transcribe] ✗', err.message);
