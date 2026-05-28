@@ -381,7 +381,10 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
     form.append('file',            new Blob([audioBuffer], { type: 'audio/mpeg' }), file.originalname);
     form.append('model',           WHISPER_MODEL);
     form.append('response_format', 'verbose_json');
-    form.append('prompt',          'Transcribe the lyrics exactly as sung, in their original language. Preserve punctuation, accents, and special characters accurately.');
+    // SHORT vocabulary-hint prompt only — no full sentences Whisper can echo back.
+    // Whisper's "prompt" biases its output vocabulary/style; long instructional
+    // sentences are the primary cause of prompt-leakage into the first segment.
+    form.append('prompt',          'Song lyrics.');
     form.append('temperature',     '0');
 
     console.log(`[transcribe] → Groq ${WHISPER_MODEL}`);
@@ -416,10 +419,64 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
+/**
+ * Strip prompt-leakage artefacts from a Whisper segment's text.
+ *
+ * Whisper sometimes prepends the prompt string (or fragments of it) to the
+ * first transcribed segment. We apply three layers of defence:
+ *
+ *  1. Exact removal of the old long prompt (and the new short one, just in case).
+ *  2. Regex patterns that match common instruction-sentence structures that
+ *     could never be genuine song lyrics.
+ *  3. A final trim so no leading/trailing whitespace or punctuation is left.
+ */
+function cleanSegmentText(text) {
+  let s = text;
+
+  // ── Layer 1: exact known phrases (old prompt + variations) ──────────────
+  const KNOWN_LEAKS = [
+    'Transcribe the lyrics exactly as sung, in their original language. Preserve punctuation, accents, and special characters accurately.',
+    'Transcribe the lyrics exactly as sung, in their original language.',
+    'Preserve punctuation, accents, and special characters accurately.',
+    'The original lyrics are the same as the original song.',
+    'Song lyrics.',
+  ];
+  for (const phrase of KNOWN_LEAKS) {
+    // Case-insensitive, anywhere in the string (could be mid-segment)
+    s = s.replace(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '');
+  }
+
+  // ── Layer 2: broad regex for instruction-style sentences ────────────────
+  // These patterns match text that looks like AI instructions, never lyrics.
+  const INSTRUCTION_PATTERNS = [
+    // "Transcribe ... " / "Translate ... " sentence openers
+    /\bTranscri(?:be|ption)\b[^.!?]*[.!?]/gi,
+    // "Preserve X accurately" / "Preserve X and Y"
+    /\bPreserve\b[^.!?]*[.!?]/gi,
+    // "Return ONLY ..." / "Output only ..."
+    /\b(?:Return|Output)\s+(?:only|just)\b[^.!?]*[.!?]/gi,
+    // "The original lyrics are ..."
+    /\bThe original lyrics\b[^.!?]*[.!?]/gi,
+    // Sentences containing "accents" or "special characters" (instruction language)
+    /[^.!?]*\b(?:accents|special characters)\b[^.!?]*[.!?]/gi,
+  ];
+  for (const re of INSTRUCTION_PATTERNS) {
+    s = s.replace(re, '');
+  }
+
+  // ── Layer 3: tidy up ────────────────────────────────────────────────────
+  return s
+    .replace(/\s{2,}/g, ' ')  // collapse multiple spaces
+    .trim();
+}
+
 // Groq verbose_json segments → [{t, l}]
 function segmentsToLines(segments) {
   return segments
-    .map(s => ({ t: Math.round((s.start ?? 0) * 10) / 10, l: (s.text || '').trim() }))
+    .map(s => ({
+      t: Math.round((s.start ?? 0) * 10) / 10,
+      l: cleanSegmentText((s.text || '').trim()),
+    }))
     .filter(s => s.l.length > 0);
 }
 
