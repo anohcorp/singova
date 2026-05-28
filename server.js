@@ -6,8 +6,46 @@ const multer  = require('multer');
 const dotenv  = require('dotenv');
 const os      = require('os');
 const fs      = require('fs');
+const path    = require('path');
 
 dotenv.config();
+
+// ── LYRICS DATABASE ───────────────────────────────────────────────────────────
+// Loaded once at startup. Keys are lowercase filenames without extension.
+let LYRICS_DB = {};
+(function loadLyricsDB() {
+  const dbPath = path.join(__dirname, 'lyrics.json');
+  try {
+    const raw = fs.readFileSync(dbPath, 'utf8');
+    LYRICS_DB = JSON.parse(raw);
+    // Remove the readme key so it never pollutes lookups
+    delete LYRICS_DB['_readme'];
+    console.log(`[startup] ✓ lyrics.json loaded — ${Object.keys(LYRICS_DB).length} song(s) in DB`);
+  } catch (e) {
+    console.warn(`[startup] ⚠ lyrics.json not found or invalid — DB lookups disabled (${e.message})`);
+  }
+})()
+
+/**
+ * Normalise a filename for DB lookup:
+ *   - strip extension
+ *   - trim and lowercase
+ *   - collapse runs of whitespace / dashes / underscores to single space
+ */
+function normaliseKey(filename) {
+  return (filename || '')
+    .replace(/\.[^.]+$/, '')   // remove extension
+    .toLowerCase()
+    .replace(/[-_]+/g, ' ')   // dashes/underscores → space
+    .replace(/\s+/g, ' ')     // collapse whitespace
+    .trim();
+}
+
+/** Returns the lyrics array if found in the DB, otherwise null. */
+function lookupLyrics(filename) {
+  const key = normaliseKey(filename);
+  return LYRICS_DB[key] ?? null;
+}
 
 const PORT         = process.env.PORT || 3000;
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
@@ -46,7 +84,27 @@ app.get('/health', (_req, res) => {
     status   : 'ok',
     live     : !!GROQ_API_KEY,
     whisper  : WHISPER_MODEL,
+    lyricsDB : Object.keys(LYRICS_DB).length,
   });
+});
+
+// ── GET /lyrics-check ─────────────────────────────────────────────────────────
+// Query: ?name=<filename>   (e.g. ?name=The+Sound+of+Silence.mp3)
+// Returns: { found: true, lyrics: [...], source: 'db' }
+//       or: { found: false }
+// This lets the client do a cheap GET before committing to a full audio upload.
+app.get('/lyrics-check', (req, res) => {
+  const name = String(req.query.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Missing ?name= query parameter' });
+
+  const lyrics = lookupLyrics(name);
+  if (lyrics) {
+    console.log(`[lyrics-check] ✓ DB hit — "${normaliseKey(name)}"`);
+    return res.json({ found: true, lyrics, source: 'db', detectedLang: 'xx' });
+  }
+
+  console.log(`[lyrics-check] ✗ DB miss — "${normaliseKey(name)}"`);
+  return res.json({ found: false });
 });
 
 // ── POST /transcribe ──────────────────────────────────────────────────────────
@@ -59,6 +117,15 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
   }
 
   console.log(`\n[transcribe] ▶ ${file.originalname}  (${(file.size / 1024).toFixed(1)} KB)`);
+
+  // ── Step 1: check lyrics DB before touching Groq ──────────────────────────
+  const dbLyrics = lookupLyrics(file.originalname);
+  if (dbLyrics) {
+    fs.unlink(file.path, () => {}); // no need to keep the upload
+    console.log(`[transcribe] ✓ DB hit — returning cached lyrics for "${normaliseKey(file.originalname)}"`);
+    return res.json({ lyrics: dbLyrics, detectedLang: 'xx', source: 'db' });
+  }
+  console.log(`[transcribe] ✗ DB miss — falling back to Groq Whisper`);
 
   try {
     // Read the uploaded bytes
@@ -76,6 +143,10 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
     form.append('file',            new Blob([audioBuffer], { type: 'audio/mpeg' }), file.originalname);
     form.append('model',           WHISPER_MODEL);
     form.append('response_format', 'verbose_json');
+    // Do NOT append 'language' — omitting it tells Whisper to auto-detect.
+    // The prompt steers output toward the original language with proper punctuation.
+    form.append('prompt',          'Transcribe the lyrics exactly as sung, in their original language. Preserve punctuation, accents, and special characters accurately.');
+    form.append('temperature',     '0');   // most deterministic output
 
     console.log(`[transcribe] → Groq ${WHISPER_MODEL}`);
 

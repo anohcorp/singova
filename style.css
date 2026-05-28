@@ -23,21 +23,21 @@ body {
   width: 100%;
   max-width: 100vw;
   overflow-x: hidden;
-  background: #09090f;
-  color: #f1f5f9;
+  background: #050d1a;
+  color: #ffffff;
 }
 
 /* ── Glassmorphism ─────────────────────────────────────────────────────────── */
 .glass {
-  background: rgba(13, 13, 13, 0.084);
+  background: rgba(0, 20, 50, 0.12);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, .07);
+  border: 1px solid rgba(0, 180, 216, .12);
 }
 
 /* ── Gradient text ─────────────────────────────────────────────────────────── */
 .gradient-text {
-  background: linear-gradient(to right, #c084fc, #818cf8);
+  background: linear-gradient(to right, #00e5ff, #0096c7);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -55,7 +55,7 @@ body {
   position: absolute;
   inset: -2px;
   border-radius: 1.6rem;
-  background: linear-gradient(135deg, #7c3aed, #6366f1, #a78bfa, #38bdf8, #7c3aed);
+  background: linear-gradient(135deg, #0096c7, #00b4d8, #00e5ff, #48cae4, #0096c7);
   background-size: 300% 300%;
   animation: gborder 4s ease infinite;
   z-index: 0;
@@ -71,7 +71,7 @@ body {
 .drop-inner {
   position: relative;
   z-index: 1;
-  background: #0d0d1a;
+  background: #071426;
   border-radius: 1.4rem;
   width: 100%;
   transition: background .2s;
@@ -88,7 +88,7 @@ body {
   width: 3px;
   height: 3px;
   border-radius: 3px;
-  background: linear-gradient(to top, #7c3aed, #a78bfa);
+  background: linear-gradient(to top, #0096c7, #00e5ff);
   animation: wdance 1.2s ease-in-out infinite;
   flex-shrink: 0;
 }
@@ -114,9 +114,9 @@ body {
 }
 
 .lyric-line.active {
-  color: #e9d5ff;
-  background: rgba(124, 58, 237, .18);
-  border-left-color: #8b5cf6;
+  color: #ffffff;
+  background: rgba(0, 180, 216, .18);
+  border-left-color: #00b4d8;
   font-weight: 600;
   font-size: clamp(0.875rem, 2.4vw, 1rem);
 }
@@ -134,12 +134,13 @@ body {
   stroke-linecap: round;
   transform: rotate(-90deg);
   transform-origin: 50% 50%;
+  stroke: #00d4ff;
 }
 
 /* ── Scrollbar ─────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar        { width: 4px; }
 ::-webkit-scrollbar-track  { background: transparent; }
-::-webkit-scrollbar-thumb  { background: #4c1d95; border-radius: 2px; }
+::-webkit-scrollbar-thumb  { background: #0096c7; border-radius: 2px; }
 
 /* ── Seek bar (base) ───────────────────────────────────────────────────────── */
 input[type='range'] {
@@ -160,13 +161,13 @@ input[type='range']::-webkit-slider-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #8b5cf6;
+  background: #00b4d8;
   cursor: pointer;
   transition: background .2s, transform .2s;
 }
 
 input[type='range']::-webkit-slider-thumb:hover {
-  background: #a78bfa;
+  background: #00e5ff;
   transform: scale(1.2);
 }
 

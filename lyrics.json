@@ -1,0 +1,18 @@
+{
+  "_readme": "Keys = song filename (lowercase, no extension). Values = [{t: seconds, l: lyric line}]. This file is checked BEFORE Groq Whisper is called.",
+
+  "the sound of silence": [
+    { "t":  0.0, "l": "Hello darkness, my old friend," },
+    { "t":  5.2, "l": "I've come to talk with you again," },
+    { "t": 10.4, "l": "Because a vision softly creeping," },
+    { "t": 15.6, "l": "Left its seeds while I was sleeping," },
+    { "t": 20.8, "l": "And the vision that was planted in my brain" },
+    { "t": 27.0, "l": "Still remains within the sound of silence." },
+    { "t": 33.0, "l": "In restless dreams I walked alone," },
+    { "t": 38.0, "l": "Narrow streets of cobblestone," },
+    { "t": 43.0, "l": "'Neath the halo of a street lamp," },
+    { "t": 48.0, "l": "I turned my collar to the cold and damp," },
+    { "t": 53.0, "l": "When my eyes were stabbed by the flash of a neon light" },
+    { "t": 60.0, "l": "That split the night and touched the sound of silence." }
+  ]
+}

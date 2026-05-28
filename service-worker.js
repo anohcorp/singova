@@ -1,4 +1,4 @@
-const CACHE = 'singova-v2';  // bump version when any static asset changes
+const CACHE = 'singova-v3';  // bump version when any static asset changes
 const STATIC = [
   '/index.html',
   '/style.css',
@@ -23,23 +23,37 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Fetch — network-first for /api/, cache-first for everything else
+// Fetch — pass cross-origin requests (e.g. Render API) straight to network;
+//          network-first for same-origin /transcribe and /health;
+//          cache-first for all other static assets.
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  if (url.pathname.startsWith('/api/')) {
-    // API: always try network, fallback to offline JSON
+  // ── 1. Cross-origin (e.g. https://singova.onrender.com) → always network ──
+  if (url.origin !== self.location.origin) {
     e.respondWith(
       fetch(e.request).catch(() =>
         new Response(JSON.stringify({ error: 'offline' }), {
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
         })
       )
     );
     return;
   }
 
-  // Static assets: cache-first, update in background
+  // ── 2. Same-origin API routes → network-first, never cached ──────────────
+  if (url.pathname === '/transcribe' || url.pathname === '/health' || url.pathname.startsWith('/api/')) {
+    e.respondWith(
+      fetch(e.request).catch(() =>
+        new Response(JSON.stringify({ error: 'offline' }), {
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    );
+    return;
+  }
+
+  // ── 3. Static assets → cache-first, update in background ─────────────────
   e.respondWith(
     caches.match(e.request).then(cached => {
       const network = fetch(e.request).then(res => {

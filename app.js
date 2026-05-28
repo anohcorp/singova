@@ -6,7 +6,11 @@
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 const CONFIG = {
-  apiEndpoint : 'https://singova.onrender.com/transcribe',
+  apiEndpoint        : 'https://singova.onrender.com/transcribe',
+  // Derived automatically — no need to edit manually
+  get lyricsCheckEndpoint() {
+    return this.apiEndpoint.replace(/\/transcribe$/, '') + '/lyrics-check';
+  },
   mockMode    : false,   // set true to use built-in demo data without a server
   mockStepMs  : 800,
   maxHistory  : 50,
@@ -39,10 +43,27 @@ const API = {
 };
 
 async function _realAnalyze(file, onProgress) {
+  // ── Phase 1: DB pre-check (cheap GET, no upload needed) ──────────────────
+  onProgress(5, '🔍 Checking lyrics database…');
+  try {
+    const checkUrl = `${CONFIG.lyricsCheckEndpoint}?name=${encodeURIComponent(file.name)}`;
+    const checkRes = await fetch(checkUrl, { headers: { 'Accept': 'application/json' } });
+    if (checkRes.ok) {
+      const checkData = await checkRes.json();
+      if (checkData.found && Array.isArray(checkData.lyrics)) {
+        onProgress(100, '✓ Found in lyrics database!');
+        return { lyrics: checkData.lyrics, detectedLang: checkData.detectedLang || 'xx', source: 'db' };
+      }
+    }
+  } catch (_) {
+    // Network error on pre-check — silently fall through to Groq
+  }
+
+  // ── Phase 2: Groq Whisper fallback (full audio upload) ─────────────────
   const fd = new FormData();
   fd.append('audio', file, file.name);  // field name matches multer in server.js
 
-  onProgress(5, 'Uploading audio…');
+  onProgress(10, 'Uploading audio…');
   const timer = _startProgressAnimation(onProgress);
 
   let data;
@@ -68,17 +89,17 @@ async function _realAnalyze(file, onProgress) {
   onProgress(100, '✓ Analysis complete');
 
   // Accept both shapes the server might return
-  if (Array.isArray(data.lyrics)) return { lyrics: data.lyrics, detectedLang: data.detectedLang || 'en' };
-  if (Array.isArray(data.segments)) return { lyrics: segmentsToLines(data.segments), detectedLang: data.language || 'en' };
+  if (Array.isArray(data.lyrics)) return { lyrics: data.lyrics, detectedLang: data.detectedLang || 'en', source: data.source || 'whisper' };
+  if (Array.isArray(data.segments)) return { lyrics: segmentsToLines(data.segments), detectedLang: data.language || 'en', source: 'whisper' };
   throw new Error('Unexpected response from server.');
 }
 
 function _startProgressAnimation(onProgress) {
   const steps = [
-    [20, '🎙 Sending to Groq Whisper…'],
-    [45, '🤖 Transcribing audio…'],
-    [70, '⏱ Aligning timestamps…'],
-    [88, 'Almost done…'],
+    [25, '🎙 Sending to Groq Whisper…'],
+    [50, '🤖 Transcribing audio…'],
+    [75, '⏱ Aligning timestamps…'],
+    [90, 'Almost done…'],
   ];
   let i = 0;
   return setInterval(() => {
@@ -254,7 +275,7 @@ const App = {
 
     this.setState('analyzing');
     setProgress(0, 'Starting…');
-    $('lyrics-display').innerHTML = '<p class="text-slate-600 italic text-sm animate-pulse">AI is processing your track…</p>';
+    $('lyrics-display').innerHTML = '<p class="text-slate-600 italic text-sm animate-pulse">Checking lyrics database…</p>';
     Library.save(file.name, null);
     Library.render();
 
