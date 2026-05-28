@@ -377,17 +377,33 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
       return res.json(mockResponse());
     }
 
-    const form = new FormData();
-    form.append('file',            new Blob([audioBuffer], { type: 'audio/mpeg' }), file.originalname);
-    form.append('model',           WHISPER_MODEL);
-    form.append('response_format', 'verbose_json');
-    // SHORT vocabulary-hint prompt only — no full sentences Whisper can echo back.
-    // Whisper's "prompt" biases its output vocabulary/style; long instructional
-    // sentences are the primary cause of prompt-leakage into the first segment.
-    form.append('prompt',          'Song lyrics.');
-    form.append('temperature',     '0');
+    // Derive MIME type from the original file extension for accuracy
+    const extMime = {
+      mp3: 'audio/mpeg', m4a: 'audio/mp4', mp4: 'audio/mp4',
+      wav: 'audio/wav',  ogg: 'audio/ogg', flac: 'audio/flac',
+      webm: 'audio/webm',
+    };
+    const ext  = (file.originalname.split('.').pop() || 'mp3').toLowerCase();
+    const mime = extMime[ext] || 'audio/mpeg';
 
-    console.log(`[transcribe] → Groq ${WHISPER_MODEL}`);
+    const form = new FormData();
+    form.append('file',  new Blob([audioBuffer], { type: mime }), file.originalname);
+    form.append('model', WHISPER_MODEL);
+    form.append('response_format', 'verbose_json');
+
+    // temperature: 0.2 (NOT 0) deliberately — Whisper's internal silence-detection
+    // heuristic aborts transcription early when temperature=0 and it judges a
+    // region as low-speech. A small non-zero value disables that abort and lets
+    // Whisper continue through instrumental bridges and pauses.
+    form.append('temperature', '0.2');
+
+    // Keep context across long gaps so the model doesn't lose track of the song
+    form.append('condition_on_previous_text', 'true');
+
+    // Short vocabulary-hint — no full sentences Whisper can echo back
+    form.append('prompt', 'Song lyrics.');
+
+    console.log(`[transcribe] → Groq ${WHISPER_MODEL} (ext=${ext})`);
 
     const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method : 'POST',
@@ -417,23 +433,92 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
   }
 });
 
-// ── HELPERS ───────────────────────────────────────────────────────────────────
+// ── HALLUCINATION + LEAKAGE FILTER ───────────────────────────────────────────
 
 /**
- * Strip prompt-leakage artefacts from a Whisper segment's text.
- *
- * Whisper sometimes prepends the prompt string (or fragments of it) to the
- * first transcribed segment. We apply three layers of defence:
- *
- *  1. Exact removal of the old long prompt (and the new short one, just in case).
- *  2. Regex patterns that match common instruction-sentence structures that
- *     could never be genuine song lyrics.
- *  3. A final trim so no leading/trailing whitespace or punctuation is left.
+ * Exact hallucination phrases Whisper produces on silence / instrumental gaps.
+ * Covers thank-you phrases in 15+ languages, subtitle artefacts, applause
+ * markers, and common AI filler. Matched case-insensitively, stripped entirely.
+ */
+const HALLUCINATION_EXACT = new Set([
+  // English
+  'thank you', 'thank you.', 'thank you!', 'thanks', 'thanks.',
+  'thanks for watching', 'thanks for watching!', 'thanks for watching.',
+  'thank you for watching', 'thank you for watching.',
+  'thank you for listening', 'thank you for listening.',
+  'please subscribe', 'subscribe', 'like and subscribe',
+  'you', 'you.', '...', '. . .', '….', '…',
+  // French
+  'merci', 'merci.', 'merci!', 'merci beaucoup', 'merci beaucoup.',
+  'sous-titres réalisés para la communauté d\'amara.org',
+  'sous-titres réalisés par la communauté d\'amara.org',
+  'sous-titres', 'sous-titres.',
+  // Spanish
+  'gracias', 'gracias.', 'gracias!', 'muchas gracias', 'muchas gracias.',
+  // Portuguese
+  'obrigado', 'obrigado.', 'obrigada', 'obrigada.',
+  // German
+  'danke', 'danke.', 'danke schön', 'vielen dank',
+  // Italian
+  'grazie', 'grazie.', 'grazie mille',
+  // Japanese
+  'ありがとう', 'ありがとうございます',
+  // Korean
+  '감사합니다', '감사합니다.',
+  // Chinese
+  '谢谢', '谢谢.',
+  // Arabic
+  'شكرا', 'شكراً',
+  // Dutch
+  'dank je', 'dank u', 'bedankt',
+  // Russian
+  'спасибо', 'спасибо.',
+  // Subtitle / caption artefacts
+  '[music]', '[música]', '[musique]', '[applause]', '[applaudissements]',
+  '[laughter]', '[silence]', '[inaudible]', '[noise]', '[no audio]',
+  '[ music ]', '[ applause ]', '( music )', '(music)', '(applause)',
+  '♪', '♫', '♪♪', '♫♫', '♪ ♪', '♫ ♫',
+  // Common YouTube-style artefacts
+  'subtitles by', 'subtitled by', 'transcribed by',
+  'captions by', 'closed captions',
+  'amara.org', 'dotsub.com',
+]);
+
+/**
+ * Regex patterns that match hallucination sentence structures.
+ * Used after exact-match removal as a second defence.
+ */
+const HALLUCINATION_PATTERNS = [
+  // Prompt leakage — instruction-style sentences
+  /\bTranscri(?:be|ption)\b[^.!?]*[.!?]/gi,
+  /\bPreserve\b[^.!?]*[.!?]/gi,
+  /\b(?:Return|Output)\s+(?:only|just)\b[^.!?]*[.!?]/gi,
+  /\bThe original lyrics\b[^.!?]*[.!?]/gi,
+  /[^.!?]*\b(?:accents|special characters)\b[^.!?]*[.!?]/gi,
+  // "[Music]" / "[Applause]" / "(Laughter)" bracketed stage directions
+  /\[\s*[\w\s]+\s*\]/gi,
+  /\(\s*(?:music|applause|laughter|silence|inaudible|noise|clapping)\s*\)/gi,
+  // Isolated ellipsis or dots
+  /^\.{1,3}$|^…+$/,
+  // Standalone music notes
+  /^[♪♫\s]+$/,
+  // "Thank you" variants not caught by exact list
+  /^(?:thank(?:s| you)|gracias|merci|danke|grazie|obrigad[oa]|спасибо|shukran)[.!,]?$/i,
+  // "Subtitles/Captions by ..."
+  /\b(?:subtitles?|captions?|transcri(?:bed|ption))\s+by\b[^.]*[.]/gi,
+];
+
+/**
+ * Strip hallucinations and prompt-leakage from a single Whisper segment text.
+ * Called per-segment inside segmentsToLines.
  */
 function cleanSegmentText(text) {
+  // Exact-phrase check first (fast path — covers most cases)
+  if (HALLUCINATION_EXACT.has(text.toLowerCase().trim())) return '';
+
   let s = text;
 
-  // ── Layer 1: exact known phrases (old prompt + variations) ──────────────
+  // Exact known-leak phrases (prompt echo)
   const KNOWN_LEAKS = [
     'Transcribe the lyrics exactly as sung, in their original language. Preserve punctuation, accents, and special characters accurately.',
     'Transcribe the lyrics exactly as sung, in their original language.',
@@ -442,37 +527,33 @@ function cleanSegmentText(text) {
     'Song lyrics.',
   ];
   for (const phrase of KNOWN_LEAKS) {
-    // Case-insensitive, anywhere in the string (could be mid-segment)
     s = s.replace(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '');
   }
 
-  // ── Layer 2: broad regex for instruction-style sentences ────────────────
-  // These patterns match text that looks like AI instructions, never lyrics.
-  const INSTRUCTION_PATTERNS = [
-    // "Transcribe ... " / "Translate ... " sentence openers
-    /\bTranscri(?:be|ption)\b[^.!?]*[.!?]/gi,
-    // "Preserve X accurately" / "Preserve X and Y"
-    /\bPreserve\b[^.!?]*[.!?]/gi,
-    // "Return ONLY ..." / "Output only ..."
-    /\b(?:Return|Output)\s+(?:only|just)\b[^.!?]*[.!?]/gi,
-    // "The original lyrics are ..."
-    /\bThe original lyrics\b[^.!?]*[.!?]/gi,
-    // Sentences containing "accents" or "special characters" (instruction language)
-    /[^.!?]*\b(?:accents|special characters)\b[^.!?]*[.!?]/gi,
-  ];
-  for (const re of INSTRUCTION_PATTERNS) {
+  // Pattern-based hallucination sweep
+  for (const re of HALLUCINATION_PATTERNS) {
     s = s.replace(re, '');
   }
 
-  // ── Layer 3: tidy up ────────────────────────────────────────────────────
-  return s
-    .replace(/\s{2,}/g, ' ')  // collapse multiple spaces
-    .trim();
+  // Strip trailing isolated punctuation left after removal (e.g. lone "." or ",")
+  s = s.replace(/^[\s.,!?;:…\-]+$/, '');
+
+  // Collapse runs of whitespace and trim
+  return s.replace(/\s{2,}/g, ' ').trim();
 }
 
-// Groq verbose_json segments → [{t, l}]
+/**
+ * Convert Groq verbose_json segments → [{t, l}].
+ *
+ * Segments with no_speech_prob > NO_SPEECH_THRESHOLD are discarded before
+ * any text processing — this removes hallucinations at their root by rejecting
+ * output that Whisper itself flagged as likely non-speech (silence/music).
+ */
+const NO_SPEECH_THRESHOLD = 0.6;  // tune between 0.5–0.8 if needed
+
 function segmentsToLines(segments) {
   return segments
+    .filter(s => (s.no_speech_prob ?? 0) <= NO_SPEECH_THRESHOLD)
     .map(s => ({
       t: Math.round((s.start ?? 0) * 10) / 10,
       l: cleanSegmentText((s.text || '').trim()),
