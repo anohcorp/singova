@@ -395,8 +395,6 @@ async function tryWhisper(file) {
   form.append('response_format', 'verbose_json');
   // temperature 0.2: disables Whisper's silence-abort heuristic that causes early cutoff
   form.append('temperature', '0.2');
-  // Keeps context alive across instrumental gaps so transcription continues
-  form.append('condition_on_previous_text', 'true');
   // Short vocab hint — no prose Whisper can echo as prompt leakage
   form.append('prompt', 'Song lyrics.');
 
