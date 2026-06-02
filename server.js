@@ -133,24 +133,23 @@ async function scrapeLyricsPage(pageUrl) {
 }
 
 /**
- * Extract lyrics from raw Genius HTML using Cheerio.
+ * Extract lyrics from raw Genius HTML using the "bulldozer" method.
  *
  * Strategy:
  *  1. Load HTML into Cheerio.
- *  2. Select every element whose class starts with "Lyrics__Container"
- *     — this catches all div chunks Genius uses to split the song.
- *  3. Inside each container, replace <br> elements with a newline sentinel
- *     so line breaks survive the text extraction step.
- *  4. Grab the combined .text() of all containers.
- *  5. Split on the newline sentinel, trim, and filter empty lines.
+ *  2. Select EVERY div whose class starts with "Lyrics__Container"
+ *     (CSS attribute prefix selector — catches all chunks Genius uses).
+ *  3. For each container, grab the raw inner HTML.
+ *  4. Replace all <br> / <br/> / <br /> variants with real newlines.
+ *  5. Strip every remaining HTML tag completely (/<[^>]*>?/gm).
+ *  6. Decode common HTML entities so characters like & ' " are correct.
+ *  7. Trim and append to fullLyrics with newline separation.
+ *  8. Split into non-empty lines and return.
  */
 function parseLyricsFromHtml(html) {
   const $ = cheerio.load(html);
 
-  // Collect all lyrics container divs (class name starts with "Lyrics__Container")
-  // We use the CSS attribute prefix selector. Genius also marks some with
-  // data-lyrics-container="true", so we accept either as a fallback.
-  const containers = $('[class^="Lyrics__Container"], [data-lyrics-container="true"]');
+  const containers = $('div[class^="Lyrics__Container"]');
 
   if (containers.length === 0) {
     console.warn('[genius] ⚠ No Lyrics__Container divs found — page structure may have changed');
@@ -159,17 +158,34 @@ function parseLyricsFromHtml(html) {
 
   console.log(`[genius] Found ${containers.length} lyrics container(s)`);
 
-  // Replace every <br> inside the containers with a newline sentinel
-  // BEFORE extracting text, so we preserve line structure.
-  containers.find('br').replaceWith('\n');
+  let fullLyrics = '';
 
-  // Build the full lyrics string from all containers
-  const fullText = containers
-    .map((_i, el) => $(el).text())
-    .get()
-    .join('\n');
+  containers.each((_i, el) => {
+    let chunk = $(el).html();
+    if (chunk === null) return;
 
-  const lines = fullText
+    // Step 1: <br> variants → real newline
+    chunk = chunk.replace(/<br\s*\/?>/gi, '\n');
+
+    // Step 2: strip ALL remaining HTML tags
+    chunk = chunk.replace(/<[^>]*>?/gm, '');
+
+    // Step 3: decode common HTML entities
+    chunk = chunk
+      .replace(/&amp;/g,  '&')
+      .replace(/&lt;/g,   '<')
+      .replace(/&gt;/g,   '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#x27;/g, "'")
+      .replace(/&#39;/g,  "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&nbsp;/g, ' ');
+
+    // Step 4: trim and append (containers separated by a newline)
+    fullLyrics += chunk.trim() + '\n';
+  });
+
+  const lines = fullLyrics
     .split('\n')
     .map(l => l.trim())
     .filter(l => l.length > 0);
