@@ -6,6 +6,7 @@ const multer  = require('multer');
 const dotenv  = require('dotenv');
 const os      = require('os');
 const fs      = require('fs');
+const cheerio = require('cheerio');
 
 dotenv.config();
 
@@ -105,11 +106,10 @@ async function searchGenius(query) {
 /**
  * Fetch a Genius song page and scrape its lyrics.
  *
- * Genius lyrics live in one or more:
- *   <div data-lyrics-container="true" ...> … </div>
- *
- * We use a depth-tracking walker (no external HTML parser) so nested
- * elements inside the container are handled correctly.
+ * Genius splits lyrics across multiple divs whose class names start with
+ * "Lyrics__Container". We select ALL of them with Cheerio's attribute
+ * prefix selector [class^="Lyrics__Container"], replace <br> tags with
+ * real newlines, and concatenate the full song text.
  *
  * Returns an array of lyric lines (strings), or null if none found.
  */
@@ -133,79 +133,43 @@ async function scrapeLyricsPage(pageUrl) {
 }
 
 /**
- * Extract lyrics from raw Genius HTML.
+ * Extract lyrics from raw Genius HTML using Cheerio.
  *
  * Strategy:
- *  1. Locate each `data-lyrics-container="true"` div.
- *  2. Walk character-by-character tracking <div> nesting depth to find its
- *     matching closing </div> — avoids regex edge-cases with nested elements.
- *  3. Convert <br> → newline, strip all remaining HTML tags.
- *  4. Decode common HTML entities.
- *  5. Split into non-empty lines.
+ *  1. Load HTML into Cheerio.
+ *  2. Select every element whose class starts with "Lyrics__Container"
+ *     — this catches all div chunks Genius uses to split the song.
+ *  3. Inside each container, replace <br> elements with a newline sentinel
+ *     so line breaks survive the text extraction step.
+ *  4. Grab the combined .text() of all containers.
+ *  5. Split on the newline sentinel, trim, and filter empty lines.
  */
 function parseLyricsFromHtml(html) {
-  const MARKER = 'data-lyrics-container="true"';
-  const sections = [];
+  const $ = cheerio.load(html);
 
-  let searchFrom = 0;
-  while (true) {
-    const markerPos = html.indexOf(MARKER, searchFrom);
-    if (markerPos === -1) break;
+  // Collect all lyrics container divs (class name starts with "Lyrics__Container")
+  // We use the CSS attribute prefix selector. Genius also marks some with
+  // data-lyrics-container="true", so we accept either as a fallback.
+  const containers = $('[class^="Lyrics__Container"], [data-lyrics-container="true"]');
 
-    // Advance past the opening tag's closing ">"
-    const openTagEnd = html.indexOf('>', markerPos);
-    if (openTagEnd === -1) break;
-    const contentStart = openTagEnd + 1;
-
-    // Depth-track to find the matching </div>
-    let depth = 1;
-    let pos   = contentStart;
-
-    while (depth > 0 && pos < html.length) {
-      const nextOpen  = html.indexOf('<div',  pos);
-      const nextClose = html.indexOf('</div', pos);
-
-      if (nextClose === -1) { pos = html.length; break; }
-
-      if (nextOpen !== -1 && nextOpen < nextClose) {
-        // Found a nested <div> before the next </div>
-        depth++;
-        pos = nextOpen + 4;
-      } else {
-        // Found a </div>
-        depth--;
-        if (depth === 0) {
-          // This is the matching close of our lyrics container
-          sections.push(html.slice(contentStart, nextClose));
-        } else {
-          pos = nextClose + 5;
-        }
-      }
-    }
-
-    searchFrom = markerPos + MARKER.length;
+  if (containers.length === 0) {
+    console.warn('[genius] ⚠ No Lyrics__Container divs found — page structure may have changed');
+    return null;
   }
 
-  if (sections.length === 0) return null;
+  console.log(`[genius] Found ${containers.length} lyrics container(s)`);
 
-  const rawText = sections
-    .join('\n')
-    // Line breaks
-    .replace(/<br\s*\/?>/gi, '\n')
-    // Strip all remaining tags
-    .replace(/<[^>]+>/g, '')
-    // Decode common HTML entities
-    .replace(/&amp;/g,   '&')
-    .replace(/&lt;/g,    '<')
-    .replace(/&gt;/g,    '>')
-    .replace(/&quot;/g,  '"')
-    .replace(/&#x27;/g,  "'")
-    .replace(/&#39;/g,   "'")
-    .replace(/&nbsp;/g,  ' ')
-    .replace(/\u2019/g,  '\u2019')  // right single quotation mark — keep as-is
-    .replace(/\u2018/g,  '\u2018'); // left single quotation mark  — keep as-is
+  // Replace every <br> inside the containers with a newline sentinel
+  // BEFORE extracting text, so we preserve line structure.
+  containers.find('br').replaceWith('\n');
 
-  const lines = rawText
+  // Build the full lyrics string from all containers
+  const fullText = containers
+    .map((_i, el) => $(el).text())
+    .get()
+    .join('\n');
+
+  const lines = fullText
     .split('\n')
     .map(l => l.trim())
     .filter(l => l.length > 0);
