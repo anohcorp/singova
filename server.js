@@ -85,8 +85,9 @@ async function searchGenius(query) {
   const url = `https://api.genius.com/search?q=${encodeURIComponent(query)}`;
   const res = await fetch(url, {
     headers: {
-      'Authorization': `Bearer ${GENIUS_ACCESS_TOKEN}`,
-      'User-Agent'   : 'Singova/1.0 (https://singova.onrender.com)',
+      'Authorization'  : `Bearer ${GENIUS_ACCESS_TOKEN}`,
+      'User-Agent'     : 'Singova/1.0 (https://singova.onrender.com)',
+      'Accept-Encoding': 'identity',   // prevent gzip — Node fetch doesn't auto-decompress
     },
   });
 
