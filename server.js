@@ -78,10 +78,47 @@ function buildSearchQuery({ artist, title }) {
 }
 
 /**
+ * Sanitize a raw search query before sending it to Genius.
+ *
+ * Removes YouTube/file-name clutter so messy filenames like
+ *   "Adele - Hello (Official Music Video) [HD Lyrics] ft. Someone"
+ * are reduced to a clean "Adele Hello" that Genius can reliably match.
+ *
+ * Steps (applied in order):
+ *  1. Strip everything inside parentheses () or brackets [] — catches
+ *     "(Official Music Video)", "[Lyrics]", "(Audio)", "[HD]", etc.
+ *  2. Remove common clutter keywords (case-insensitive, whole-word where
+ *     sensible): Official, Music Video, HQ, HD, Audio, Lyrics, Lyric Video,
+ *     feat., ft., prod., with., x (as a featured-artist separator).
+ *  3. Replace underscores with spaces (common in downloaded filenames).
+ *  4. Collapse runs of whitespace and trim.
+ *  5. Strip any trailing/leading hyphens or dashes left after removal.
+ */
+function sanitizeQuery(query) {
+  return query
+    // Step 1: remove anything inside () or []
+    .replace(/\(([^)]*)\)/g, '')
+    .replace(/\[([^\]]*)\]/g, '')
+    // Step 2: remove clutter keywords
+    .replace(/\b(lyric\s*video|music\s*video|official\s*video|official\s*audio|official|lyrics?|audio|hq|hd|feat\.?|ft\.?|prod\.?|with\.?)\b/gi, '')
+    // Step 3: underscores → spaces
+    .replace(/_/g, ' ')
+    // Step 4: collapse whitespace
+    .replace(/\s{2,}/g, ' ')
+    // Step 5: strip stray leading/trailing hyphens and dashes
+    .replace(/^\s*[-–—]+\s*|\s*[-–—]+\s*$/g, '')
+    .trim();
+}
+
+/**
  * Search the Genius API and return the best matching song object, or null.
  * Uses Bearer token from GENIUS_ACCESS_TOKEN env var.
  */
-async function searchGenius(query) {
+async function searchGenius(rawQuery) {
+  const query = sanitizeQuery(rawQuery);
+  if (query !== rawQuery) {
+    console.log(`[genius] 🧹 Sanitized query: "${rawQuery}" → "${query}"`);
+  }
   const url = `https://api.genius.com/search?q=${encodeURIComponent(query)}`;
   const res = await fetch(url, {
     headers: {
